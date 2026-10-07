@@ -30,6 +30,7 @@ export const AUDIT_ACTION_LABEL: Record<string, string> = {
   STATUS_CHANGE: "Ubah status",
   UPLOAD: "Unggah",
   VERIFY: "Verifikasi",
+  RESET_PASSWORD: "Reset kata sandi",
 };
 
 /** Warna lencana aksi (kunci STATUS_TONE dipakai ulang lewat status semu). */
@@ -41,6 +42,7 @@ export const AUDIT_ACTION_TONE: Record<string, string> = {
   STATUS_CHANGE: "DISETUJUI",
   UPLOAD: "DRAFT",
   VERIFY: "TERVERIFIKASI",
+  RESET_PASSWORD: "DIBATALKAN",
 };
 
 export const AUDIT_MODULE_LABEL: Record<string, string> = {

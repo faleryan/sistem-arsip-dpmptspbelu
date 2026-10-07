@@ -10,3 +10,7 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv;
 }
+
+/** Diisi vite.config.ts saat build. */
+declare const __APP_VERSION__: string;
+declare const __BUILD_TIME__: string;

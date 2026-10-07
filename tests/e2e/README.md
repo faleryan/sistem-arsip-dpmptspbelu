@@ -31,3 +31,24 @@ cd tests/e2e && CHROME_PATH=/path/ke/chrome npm test
 
 Hasil: daftar skenario ✔/✘, daftar galat konsol/HTTP yang tidak diharapkan, dan screenshot di `hasil/`.
 Jalankan `./load-db.sh` sebelum setiap putaran karena uji membuat data.
+
+## Uji tambahan (Fase 7)
+
+Dengan stack yang sama (PostgreSQL, PostgREST, `gateway.mjs`) berjalan:
+
+```bash
+# Edge Function admin-create-user (butuh Deno 2): hak pemanggil, buat akun, reset sandi, audit, CORS.
+# gateway.mjs meniru API admin Auth (/auth/v1/admin/users) khusus untuk uji ini.
+DENO=/path/ke/deno node edge-function.test.mjs
+
+# Alat backup/pemulihan file arsip (tools/backup). Jalankan setelah `npm test` agar ada dokumen.
+node backup.test.mjs
+```
+
+## Uji kinerja
+
+```bash
+psql -h /tmp -p 54329 -U postgres -d sipar -v n=50000 -f ../perf/seed_perf.sql   # ±2 menit
+node ../perf/run-perf.mjs           # median per kueri; anggaran BUDGET_MS (bawaan 500)
+./load-db.sh                        # kembalikan database uji ke kondisi bersih
+```

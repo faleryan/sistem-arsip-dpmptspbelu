@@ -11,12 +11,12 @@ import { Select } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/hooks/useAuth";
 import { useDistricts } from "@/hooks/useReference";
+import { useAgency } from "@/hooks/useSettings";
 import { errorMessage } from "@/lib/errors";
 import { exportReportCsv, exportReportPdf, exportReportXlsx, type ReportModel } from "@/lib/export/report";
 import { cn } from "@/lib/utils";
 import { documentSummary, licenseList, licenseSummary, monthlyTrend } from "@/services/reports";
 import { addDays, todayWita } from "@/utils/date";
-import { AGENCY_NAME } from "@/types/domain";
 import { buildDocuments, buildIssued, buildSummary, buildValidity, type Built, type ReportFilters, type ReportKind } from "./buildReport";
 import { MonthlyChart } from "./MonthlyChart";
 import { ReportTable } from "./ReportTable";
@@ -31,6 +31,7 @@ const TABS: { kind: ReportKind; label: string; icon: LucideIcon }[] = [
 
 export default function ReportsPage() {
   const { profile, hasRole } = useAuth();
+  const agency = useAgency();
   const canExport = hasRole("super_admin", "admin_arsip", "pimpinan");
   const [params, setParams] = useSearchParams();
   const today = todayWita();
@@ -102,9 +103,9 @@ export default function ReportsPage() {
   const model: ReportModel | null = useMemo(
     () =>
       data.data
-        ? { ...data.data, meta: { agency: AGENCY_NAME, printedBy: profile?.full_name ?? "-", printedAt: new Date() } }
+        ? { ...data.data, meta: { agency: agency.name, printedBy: profile?.full_name ?? "-", printedAt: new Date() } }
         : null,
-    [data.data, profile?.full_name],
+    [data.data, profile?.full_name, agency.name],
   );
 
   async function doExport(fmt: "xlsx" | "pdf" | "csv") {
@@ -234,7 +235,7 @@ export default function ReportsPage() {
           ) : (
             <>
               <div className="text-center">
-                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{AGENCY_NAME}</p>
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{agency.name}</p>
                 <h3 className="mt-1 text-lg font-semibold text-navy-900">{data.data.title}</h3>
                 <p className="text-sm text-muted-foreground">{data.data.subtitle}</p>
               </div>

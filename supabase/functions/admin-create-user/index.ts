@@ -8,6 +8,9 @@
 //   { action: "reset_password", user_id, password }
 //
 // SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY disediakan otomatis oleh Supabase.
+// ALLOWED_ORIGINS (opsional, secret): daftar origin aplikasi dipisah koma, mis.
+//   https://sipar.belukab.go.id,https://sipar-belu.vercel.app — bila kosong, semua origin diterima
+//   (aman karena pemanggil tetap wajib membawa JWT Super Admin, tetapi sebaiknya diisi).
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 
@@ -15,11 +18,20 @@ const ROLES = ["super_admin", "admin_arsip", "petugas", "verifikator", "pimpinan
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-const cors = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
+const ALLOWED = (Deno.env.get("ALLOWED_ORIGINS") ?? "")
+  .split(",").map((o) => o.trim().replace(/\/+$/, "")).filter(Boolean);
+
+function corsFor(req: Request): Record<string, string> {
+  const origin = req.headers.get("Origin") ?? "";
+  const allow = ALLOWED.length === 0 ? "*" : ALLOWED.includes(origin) ? origin : ALLOWED[0];
+  return {
+    "Access-Control-Allow-Origin": allow,
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    Vary: "Origin",
+  };
+}
+let cors: Record<string, string> = corsFor(new Request("http://localhost"));
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -31,11 +43,13 @@ function json(body: unknown, status = 200) {
 const str = (v: unknown, max = 200) =>
   typeof v === "string" && v.trim() !== "" && v.length <= max ? v.trim() : null;
 
+// bcrypt (dipakai Supabase Auth) hanya memakai 72 BYTE pertama: batasi dalam byte, bukan karakter.
 function validPassword(p: unknown): p is string {
-  return typeof p === "string" && p.length >= 10 && p.length <= 72;
+  return typeof p === "string" && p.length >= 10 && new TextEncoder().encode(p).length <= 72;
 }
 
 Deno.serve(async (req) => {
+  cors = corsFor(req);
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   if (req.method !== "POST") return json({ error: "Metode tidak didukung." }, 405);
 
@@ -55,10 +69,24 @@ Deno.serve(async (req) => {
 
   // 2) Pemanggil harus Super Admin aktif (dicek di database, bukan dari klaim JWT).
   const { data: me } = await admin
-    .from("profiles").select("role, is_active").eq("id", userData.user.id).maybeSingle();
+    .from("profiles").select("role, is_active, full_name").eq("id", userData.user.id).maybeSingle();
   if (!me || !me.is_active || me.role !== "super_admin") {
     return json({ error: "Hanya Super Admin yang dapat mengelola akun." }, 403);
   }
+
+  // Jejak audit atas nama pemanggil (perubahan lewat service_role tidak membawa identitas pengguna).
+  const audit = (action: string, description: string, recordId: string) =>
+    admin.from("audit_logs").insert({
+      user_id: userData.user.id,
+      user_name: me.full_name,
+      user_role: me.role,
+      action,
+      description,
+      module: "profiles",
+      record_id: recordId,
+      ip_address: req.headers.get("cf-connecting-ip") ?? req.headers.get("x-real-ip") ?? null,
+      user_agent: req.headers.get("user-agent"),
+    });
 
   let body: Record<string, unknown>;
   try {
@@ -71,9 +99,13 @@ Deno.serve(async (req) => {
   if (body.action === "reset_password") {
     const userId = typeof body.user_id === "string" && UUID_RE.test(body.user_id) ? body.user_id : null;
     if (!userId) return json({ error: "user_id tidak valid." }, 400);
-    if (!validPassword(body.password)) return json({ error: "Kata sandi minimal 10 karakter." }, 400);
+    if (!validPassword(body.password)) return json({ error: "Kata sandi 10–72 karakter." }, 400);
+    // Hanya akun SIPAR-BELU (punya profil) yang dapat direset dari sini.
+    const { data: target } = await admin.from("profiles").select("full_name").eq("id", userId).maybeSingle();
+    if (!target) return json({ error: "Pengguna tidak ditemukan." }, 404);
     const { error } = await admin.auth.admin.updateUserById(userId, { password: body.password });
     if (error) return json({ error: "Gagal mengubah kata sandi." }, 400);
+    await audit("RESET_PASSWORD", `Mereset kata sandi pengguna: ${target.full_name}`, userId);
     return json({ ok: true });
   }
 
@@ -91,7 +123,7 @@ Deno.serve(async (req) => {
   if (!email || !EMAIL_RE.test(email)) return json({ error: "Email tidak valid." }, 400);
   if (!fullName) return json({ error: "Nama lengkap wajib diisi." }, 400);
   if (!role) return json({ error: "Role tidak valid." }, 400);
-  if (!validPassword(body.password)) return json({ error: "Kata sandi minimal 10 karakter." }, 400);
+  if (!validPassword(body.password)) return json({ error: "Kata sandi 10–72 karakter." }, 400);
   if (unitId === undefined) return json({ error: "Unit tidak valid." }, 400);
   if (body.nip != null && body.nip !== "" && nip === null) return json({ error: "NIP tidak valid." }, 400);
   if (body.phone != null && body.phone !== "" && phone === null) return json({ error: "Nomor telepon tidak valid." }, 400);
@@ -123,5 +155,6 @@ Deno.serve(async (req) => {
     return json({ error: "Gagal menyimpan profil pengguna." }, 500);
   }
 
+  await audit("CREATE", `Membuat akun ${email} (${role}) untuk ${fullName}`, created.user.id);
   return json({ ok: true, user: { id: created.user.id, email, full_name: fullName, role } }, 201);
 });

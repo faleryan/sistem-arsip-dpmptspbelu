@@ -2,105 +2,79 @@
 
 Sistem Informasi Pengarsipan dan Manajemen Dokumen Perizinan — DPMPTSP Kabupaten Belu.
 
-React + TypeScript + Vite + Tailwind · Supabase (Auth, PostgreSQL + RLS, Storage) · hosting Vercel.
+React + TypeScript + Vite + Tailwind · Supabase (Auth, PostgreSQL + RLS, Storage, Edge Function) · hosting Vercel.
 
-Desain lengkap: [`docs/00-DESAIN.md`](docs/00-DESAIN.md). Status: **Fase 1–6 selesai** (lihat roadmap di dokumen desain).
+**Status: versi 1.0.0 — Fase 1–7 selesai, siap produksi.**
 
-Yang sudah bisa dipakai: login dan peran, dashboard, Pengguna & Role, **Data Perizinan** (daftar, tambah, detail,
-ubah, ubah status sesuai workflow, riwayat status, kelengkapan dokumen), **Pemohon**, **Perusahaan**, dan
-**Master Data** (jenis izin + dokumen wajib, jenis dokumen, kecamatan, desa/kelurahan, klasifikasi arsip, unit).
-Semua tabel punya pencarian, filter, urut, paginasi server, pilihan kolom, dan ekspor CSV.
+## Dokumentasi
 
-**Arsip Digital** (Fase 4): unggah PDF/JPG/PNG ke bucket privat dari halaman detail izin (dengan progres, cek isi
-file, checksum SHA-256), metadata dokumen (jenis, judul, nomor, tanggal, klasifikasi), unggah versi baru, pratinjau
-dan unduh lewat signed URL berumur pendek, hapus lunak oleh Admin, serta halaman **Arsip Digital** berisi seluruh
-dokumen lintas izin.
+| Dokumen | Isi |
+|---|---|
+| [`docs/DEPLOY.md`](docs/DEPLOY.md) | **Mulai di sini untuk produksi**: Supabase, migration, Auth + SMTP, Edge Function, Super Admin pertama, Vercel, domain, data awal, daftar periksa go-live, pembaruan, pemecahan masalah |
+| [`docs/BACKUP.md`](docs/BACKUP.md) | Backup & pemulihan database dan **file arsip** (alat `tools/backup/`) |
+| [`docs/00-DESAIN.md`](docs/00-DESAIN.md) | Desain: arsitektur, ERD, role & permission, strategi RLS, workflow, keputusan tiap fase (bagian 10–15) |
+| [`supabase/audit/security_audit.sql`](supabase/audit/security_audit.sql) | Audit keamanan basis data (jalankan di SQL Editor; target 0 TINGGI/SEDANG) |
+| [`tests/e2e/README.md`](tests/e2e/README.md) | Uji antarmuka, Edge Function, dan alat backup terhadap tiruan Supabase lokal |
 
-**DMS & workflow** (Fase 5): riwayat versi lengkap (unduh/pratinjau tiap versi, alasan penolakan per versi),
-**Antrean Verifikasi** untuk Verifikator (pratinjau berdampingan dengan Terima/Tolak beralasan), alur kerja visual
-di detail izin (Draft → Diajukan → Verifikasi → Disetujui → Diterbitkan → Aktif), **Audit Log** dengan filter dan
-rincian perubahan nilai lama → baru (plus tombol *Jejak audit* di setiap detail), dan **Data Terhapus** untuk
-memulihkan data yang dihapus lunak.
+## Fitur
 
-**Layanan & pelaporan** (Fase 6): halaman publik **verifikasi QR** `/verify/<kode>` (tanpa login, ramah ponsel,
-hanya data aman), kartu QR di detail izin terbit (unduh PNG, **cetak label**), **Notifikasi** (lonceng dengan
-jumlah belum dibaca, panel, halaman daftar, tandai dibaca, hapus), **Laporan** (rekap per jenis izin dengan tren
-bulanan, per kecamatan, izin terbit, masa berlaku, dokumen arsip) dengan ekspor **Excel, PDF, CSV** berkop instansi,
-dan **Pencarian Arsip** lanjutan (kata kunci + filter, hasil izin & dokumen sekaligus; kotak cari cepat di topbar).
+- **Login & peran** (Super Admin, Admin Arsip, Petugas, Verifikator, Pimpinan, Viewer); akun dibuat Super Admin
+  lewat Edge Function; tanpa pendaftaran mandiri.
+- **Data Perizinan, Pemohon, Perusahaan, Master Data** — tabel dengan pencarian, filter, urut, paginasi server,
+  pilihan kolom, ekspor CSV; status mengikuti workflow (Draft → Diajukan → Verifikasi → Disetujui → Diterbitkan →
+  Aktif → Berakhir, plus Ditolak/Dicabut/Dibatalkan) dengan riwayat dan kelengkapan dokumen.
+- **Arsip Digital** — unggah PDF/JPG/PNG ke bucket privat (progres, cek isi file, SHA-256), metadata & klasifikasi,
+  versi dokumen, pratinjau/unduh lewat signed URL berumur pendek.
+- **DMS** — Antrean Verifikasi, riwayat versi & alasan penolakan, **Audit Log** (nilai lama → baru), **Data
+  Terhapus** (pulihkan).
+- **QR verifikasi publik** `/verify/<kode>` (tanpa login, hanya data aman) dan label QR siap cetak.
+- **Notifikasi**, **Laporan** (rekap, per kecamatan, izin terbit, masa berlaku, dokumen; ekspor **Excel/PDF/CSV**
+  berkop instansi), **Pencarian Arsip** lanjutan.
+- **Pengaturan** (Super Admin): nama instansi, batas unggah, peringatan masa berlaku, **integritas penyimpanan**
+  (file tanpa catatan / catatan tanpa file), informasi versi.
+- Ketahanan: halaman dimuat per rute, pemulihan otomatis setelah deploy baru, pesan galat ramah, spanduk offline.
 
 ## Menjalankan lokal
 
 ```bash
 npm install
-cp .env.example .env      # isi VITE_SUPABASE_URL dan VITE_SUPABASE_ANON_KEY
+cp .env.example .env      # isi VITE_SUPABASE_URL dan VITE_SUPABASE_ANON_KEY (proyek UJI)
 npm run dev               # http://localhost:5173
 npm run build             # typecheck + build produksi ke dist/
 ```
 
-## Menyiapkan Supabase
+## Database
 
-1. Buat proyek di supabase.com. Ambil **Project URL** dan **anon public key** (Settings → API).
-2. SQL Editor → jalankan file di `supabase/migrations/` **berurutan**, satu per satu:
-   `0001` → `0002` → `0003` → `0004` → `0005` → `0006` → `0007` → `0008` → `0009` → `0010`. Semuanya aman dijalankan ulang.
-   **`0007` harus dijalankan sendiri** (satu kali *Run*), baru kemudian `0008` — PostgreSQL tidak mengizinkan
-   status enum baru dipakai dalam eksekusi yang sama dengan penambahannya.
-   Sudah menjalankan migration fase sebelumnya? Cukup jalankan yang belum (Fase 4: `0007` lalu `0008`; Fase 5: `0009`; Fase 6: `0010`).
-   Bila muncul catatan tentang `pg_cron`, aktifkan di Database → Extensions lalu jalankan ulang `0003`
-   (penjadwalan harian: izin berakhir otomatis + notifikasi).
-3. Buat Super Admin pertama (langkah manual di bagian bawah `0001`).
-4. Matikan pendaftaran mandiri: Authentication → Providers → Email → *Allow new users to sign up* = off.
-5. **Edge Function pembuat akun** (agar menu *Pengguna & Role* bisa menambah user):
-   Dashboard → Edge Functions → *Deploy a new function* → nama `admin-create-user` → tempel isi
-   `supabase/functions/admin-create-user/index.ts` → Deploy (biarkan *Verify JWT* aktif).
-   Atau dengan CLI: `supabase functions deploy admin-create-user`.
-   Kunci service role disuntik otomatis oleh Supabase; **jangan** menaruhnya di frontend atau Vercel.
-6. (Opsional, hanya proyek uji) `supabase/seed.sql` untuk data contoh, dan `supabase/seed_test_users.sql`
-   untuk 6 akun uji, satu per role (kata sandi tertulis di file itu — hapus sebelum produksi).
-   Dokumen contoh di `seed.sql` hanya metadata tanpa file, sehingga pratinjaunya menampilkan
-   "File tidak ditemukan di penyimpanan". Dokumen yang Anda unggah sendiri dapat dibuka normal.
-7. Setelah deploy, coba sekali: unggah PDF di detail izin lalu buka pratinjaunya. Bila area pratinjau kosong,
-   pakai tombol **Tab baru** atau **Unduh** dan beri tahu saya (lihat catatan pratinjau di dokumen desain bagian 12).
+Migration di `supabase/migrations/`, dijalankan berurutan di SQL Editor (rincian di `docs/DEPLOY.md` §3):
 
-## Menguji database (RLS, workflow, storage)
+| File | Isi |
+|---|---|
+| `0001`–`0006` | Profil & peran, skema, fungsi/trigger/workflow/audit, RLS, Storage, data referensi |
+| `0007` *(jalankan sendiri)*, `0008` | Status dokumen *Diarsipkan*, arsip digital (`create_document`, pencarian dokumen) |
+| `0009`, `0010` | Indeks audit; laporan & QR |
+| `0011` | Fase 7: fungsi tertutup secara bawaan, validasi pengaturan, integritas Storage, hapus file yatim |
+| `0012` | Fase 7: kinerja RLS (fungsi peran sekali per kueri, JIT mati) — daftar 50.000 izin dari 8,6 s → 0,15 s |
+| `0013` | Fase 7: perbaikan hasil tinjauan keamanan independen (lihat `docs/00-DESAIN.md` §15.1) |
 
-Suite ini menjalankan semua migration di PostgreSQL lokal (PGlite) dan menguji 77 skenario per role:
+Hanya untuk proyek **uji**: `supabase/seed.sql` (data contoh) dan `supabase/seed_test_users.sql` (6 akun uji,
+satu per role). Jangan dijalankan di produksi — audit keamanan akan menandainya.
 
-```bash
-cd supabase/tests
-npm install
-npm test
-```
+## Pengujian
 
-Catatan: ini meniru role/skema Supabase (`mock_supabase.sql`), bukan Supabase sungguhan. Jalankan juga uji manual
-singkat di proyek Anda (login tiap role uji, coba unggah dan verifikasi) setelah Fase 4.
+| Suite | Perintah | Cakupan |
+|---|---|---|
+| Database (PGlite) | `cd supabase/tests && npm install && npm test` | 96 skenario: RLS per role, workflow, Storage, arsip, laporan, audit keamanan (termasuk uji mutasi), pengaturan, integritas, perbaikan tinjauan keamanan |
+| Antarmuka E2E | lihat `tests/e2e/README.md` | 60 skenario alur nyata tiap role di Chromium terhadap PostgreSQL + PostgREST + tiruan Storage dengan **CSP produksi** |
+| Edge Function | `tests/e2e/edge-function.test.mjs` | Hak pemanggil, buat akun, reset sandi, audit, CORS, serangan lewat view |
+| Alat backup | `tests/e2e/backup.test.mjs` | Cadangkan + checksum, bertahap, pulihkan, tolak file berubah |
+| Kinerja | `tests/perf/seed_perf.sql` + `tests/perf/run-perf.mjs` | 50.000 izin / 100.000 dokumen lewat PostgREST |
 
-Uji antarmuka end-to-end (opsional, untuk pengembang): `tests/e2e/README.md` — menjalankan aplikasi terhadap
-PostgreSQL + PostgREST lokal (dengan tiruan Storage API yang memakai policy RLS asli) dan mengklik alur nyata
-tiap role (54 skenario: master data, CRUD, unggah/pratinjau/unduh/versi dokumen, verifikasi, alur penuh
-Draft → Aktif, Audit Log, pemulihan data, QR publik, notifikasi, laporan + ekspor, pencarian). Server uji mengirim
-header keamanan yang sama dengan `vercel.json` (CSP), sehingga pelanggaran CSP ikut tertangkap.
+## Keamanan (ringkas)
 
-## Deploy ke Vercel
-
-1. Push folder ini ke repository GitHub (root repo = folder ini, bukan subfolder).
-2. vercel.com → Add New → Project → pilih repo. Framework otomatis terdeteksi **Vite**
-   (build `npm run build`, output `dist` sudah diatur di `vercel.json`).
-3. Environment Variables (Production dan Preview):
-   - `VITE_SUPABASE_URL`
-   - `VITE_SUPABASE_ANON_KEY`
-   - (opsional) `VITE_PUBLIC_APP_URL` — domain yang dicetak di QR, mis. `https://sipar.belukab.go.id`.
-     Isi **sebelum** mulai mencetak QR bila domain akhir berbeda dari domain Vercel; QR yang sudah tercetak
-     memuat domain lama.
-4. Deploy. Setelah domain Vercel (mis. `sipar-belu.vercel.app`) terbit, daftarkan di Supabase:
-   Authentication → URL Configuration → **Site URL** dan **Redirect URLs**
-   (`https://domain-anda/reset-password`). Tanpa ini email "lupa kata sandi" tidak akan kembali ke aplikasi.
-5. Setiap kali Anda mengubah env var, lakukan **Redeploy** (nilai `VITE_*` ditanam saat build).
-
-Catatan: `vercel.json` memuat Content-Security-Policy yang mengizinkan `https://*.supabase.co`.
-Jika memakai custom domain Supabase, sesuaikan `connect-src`, `img-src`, dan `frame-src`.
-
-## Keamanan
-
-- Hanya anon key yang ada di frontend. `SUPABASE_SERVICE_ROLE_KEY` tidak boleh dipakai di kode frontend.
-- Hak akses ditegakkan oleh RLS di database; menu per role di UI hanya kenyamanan.
-- Tidak ada pendaftaran mandiri; akun dibuat oleh Super Admin.
+- Frontend hanya memegang anon/publishable key. `SUPABASE_SERVICE_ROLE_KEY` hanya ada di Edge Function (disuntik
+  Supabase) dan di komputer admin untuk alat backup — tidak pernah di kode frontend, variabel `VITE_*`, atau Vercel.
+- Hak akses ditegakkan di database (RLS, trigger penjaga, fungsi workflow); menu per role di UI hanya kenyamanan.
+- Anon hanya dapat memanggil `verify_license()`. File arsip di bucket privat, dibaca lewat signed URL 1–5 menit,
+  dan aksesnya mengikuti catatan dokumen.
+- Header: CSP ketat, HSTS, X-Frame-Options DENY, COOP/CORP, nosniff, Referrer-Policy, Permissions-Policy.
+- Jalankan `supabase/audit/security_audit.sql` setelah setiap migration.

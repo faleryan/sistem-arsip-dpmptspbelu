@@ -404,3 +404,70 @@ Uji antarmuka 54/54 **dengan header keamanan produksi (CSP) aktif** di server uj
 | 10 | Grafik tren bulanan: kolom berkelompok dua seri dengan palet yang lolos validator warna (CVD ΔE 24,7; kontras ≥ 3:1), legenda, tooltip saat hover/fokus keyboard, dan tabel alternatif. | Aksesibel tanpa bergantung warna. |
 | 11 | Pencarian Arsip memakai view yang sama dengan daftar (role tetap tersaring); NIK/NIB/nomor izin dicocokkan **tepat**, kata kunci dicocokkan **mengandung**. Filter NIK disembunyikan bagi Viewer (kolomnya juga disamarkan view). | Pencarian identitas harus presisi; pencarian teks harus longgar. |
 | 12 | Dashboard: kartu "Akan berakhir (30 hari)" dan kartu yang dapat diklik ke rinciannya (tujuan disesuaikan role). Role tanpa akses Audit Log melihat "Pemberitahuan terbaru", bukan "Aktivitas terbaru" yang kosong. | Ditemukan saat meninjau tangkapan layar Petugas. |
+
+## 15. Keputusan saat Fase 7 (keamanan, ketahanan, kinerja, backup, produksi)
+
+Migration baru: `0011_phase7_hardening.sql`, `0012_rls_performance.sql`, `0013_security_review_fixes.sql`.
+Suite database **96/96**, uji antarmuka **60/60** (termasuk 6 skenario Fase 7) dengan CSP produksi, uji Edge Function
+**6/6** (pertama kali jalur sukses pembuatan akun diuji ujung-ke-ujung), uji alat backup **5/5**.
+Panduan: [`DEPLOY.md`](DEPLOY.md), [`BACKUP.md`](BACKUP.md).
+
+### 15.1 Tinjauan keamanan independen
+
+Seluruh migration, Edge Function, dan frontend ditinjau oleh agen terpisah yang tidak ikut membangun, dengan
+mencoba serangan langsung ke database sebagai tiap role. Temuan dan tindak lanjut:
+
+| Tingkat | Temuan | Perbaikan |
+|---|---|---|
+| **Kritis** | `v_staff` (view berhak pemilik atas satu tabel) bersifat *auto-updatable* dan mewarisi hak `ALL` bawaan Supabase: pengguna mana pun dapat `DELETE`/`INSERT` profilnya lewat view dan menjadi `super_admin`, atau menghapus semua Super Admin. | 0013: semua view dicabut hak tulisnya; trigger menolak INSERT/DELETE profil dari permintaan API (hanya Edge Function/service_role); Super Admin aktif terakhir tidak dapat dihapus; hanya Super Admin yang dapat mengubah profil orang lain. Uji: 4 role × 4 jalur serangan ditolak, dan audit mendeteksi bila hak tulis view muncul lagi. |
+| Tinggi | Skrip audit keamanan memberi rasa aman palsu (tidak memeriksa hak tulis view, fungsi diizinkan per nama, cek policy Storage berbasis substring). | Audit memeriksa view dapat ditulis, fungsi internal tertutup, allowlist per tanda tangan fungsi (overload baru terdeteksi), hak kolom anon, dan policy Storage harus **persis** sesuai pola desain. Uji mutasi membuktikan setiap pelanggaran terdeteksi. |
+| Sedang | IP audit dapat dipalsukan lewat `x-forwarded-for`. | Utamakan `cf-connecting-ip` (dipasang Cloudflare di depan Supabase). IP tetap bersifat informatif. |
+| Sedang | Akses file Storage berbasis folder: file tanpa catatan dan file dokumen terhapus tetap dapat dibaca; unggahan tanpa catatan tak terbatas. | Baca file mengikuti **catatan versi dokumen**: role internal hanya file versi dokumen yang tidak dihapus; Viewer hanya versi **terkini** Surat Izin pada izin publik; Super Admin/Admin Arsip tetap semua (pemulihan & integritas). Maks. 20 unggahan tanpa catatan per pengguna per izin per 24 jam (dihitung lewat indeks awalan path). File yang belum tercatat tetap terbaca oleh yang berhak mengunggah ke izin itu (Storage dapat membaca baris objek tepat setelah unggah). |
+| Rendah | `created_by` dapat diubah lewat UPDATE (mengalihkan hak kelola Petugas). | Trigger mengunci `created_by` saat UPDATE dari permintaan API (kaskade FK saat akun dihapus tetap berjalan — regresi ini ditemukan peninjau pada putaran kedua dan kini diuji). |
+| Rendah | Viewer membaca kolom internal (`notes`, `officer_id`) dari tabel `licenses`. | Viewer tidak lagi membaca tabel dasar; detail & dashboard Viewer lewat `v_license_search` (kolom aman). Akses dokumen Viewer memakai `is_public_license()`. |
+| Rendah | `verify_document`: versi baru dapat terunggah di antara pemeriksaan "versi terbaru" dan penguncian. | Dokumen dikunci lebih dulu, lalu versi diperiksa terhadap `current_version_id`. |
+| Rendah | Edge Function: audit tanpa pelaku, reset sandi tak tercatat, CORS `*`, batas 72 karakter (bukan byte). | Audit atas nama Super Admin pemanggil (CREATE, RESET_PASSWORD); reset hanya untuk akun ber-profil; `ALLOWED_ORIGINS`; batas 72 **byte** (bcrypt). |
+| Rendah | CSP mengizinkan semua `*.supabase.co`. | Langkah wajib di `DEPLOY.md` untuk mengunci ke host proyek. |
+| Info | `is_orphan_object()` membocorkan keberadaan path; pengubah pengaturan tertimpa saat kaskade FK. | Fungsi hanya bernilai benar untuk Super Admin; `updated_by` hanya berubah bila nilai berubah. |
+
+Putaran kedua: peninjau yang sama menjalankan ulang semua eksploit (semuanya tertutup), menemukan satu regresi (penghapusan akun pembuat data terhalang) dan celah kecil audit (hak kolom pada tabel riwayat) — keduanya diperbaiki dan diuji.
+
+Residu yang diterima: sesi pengguna yang sandinya direset tetap berlaku sampai token akses kedaluwarsa (±1 jam);
+pembatasan laju `verify_license` mengandalkan batas API Supabase; IP di audit bersifat informatif (tanpa `cf-connecting-ip` nilainya berasal dari header yang dapat diisi klien); isi file tidak dipindai antivirus di server
+(hanya pemeriksaan tanda tangan file di peramban + batas MIME/ukuran bucket).
+
+### 15.2 Kinerja (diukur dengan 50.000 izin, 100.000 dokumen, 275.000 baris audit)
+
+Data sintetis: `tests/perf/seed_perf.sql`; pengukur: `tests/perf/run-perf.mjs` (median 6 kali, lewat PostgREST).
+
+| Kueri (Super Admin) | Sebelum | Sesudah 0012 |
+|---|---|---|
+| Daftar izin halaman 1 (+ hitung total) | 8.643 ms | **146 ms** |
+| Daftar izin halaman 1.000 | — | 210 ms |
+| Cari izin (nama pemohon / no. permohonan) | — | 466 / 387 ms |
+| Arsip dokumen halaman 1 | 3.596 ms | **655 ms** |
+| Cari arsip dokumen | 5.204 ms | 2.007 ms |
+| Audit log halaman 1 / cari | — / 1.134 ms | 252 / 1.229 ms |
+| Dashboard (per kartu), notifikasi, laporan | 21–621 ms | 5–187 ms |
+
+| # | Keputusan | Alasan |
+|---|-----------|--------|
+| 1 | Fungsi peran di policy RLS & view dibungkus `(select …)` → dihitung **sekali per kueri** (InitPlan). Dilakukan otomatis untuk semua policy oleh 0012 dan dijaga oleh audit ("Policy memanggil fungsi peran per baris"). | Fungsi SECURITY DEFINER tidak pernah di-inline; tanpa pembungkus `has_role()` dipanggil untuk setiap baris (±70 µs × 50.000). |
+| 2 | **JIT dimatikan** untuk role `authenticated`/`anon`. | Estimasi biaya kueri ber-RLS yang tinggi memicu kompilasi JIT ±0,9 detik untuk kueri yang hanya butuh puluhan milidetik. |
+| 3 | Policy `document_versions` memakai `document_id in (select …)` (hash sekali) alih-alih `exists` per baris. | 100.000 pencarian indeks per kueri → satu hash. |
+| 4 | Pencarian teks bebas lintas tabel (arsip dokumen) dan pencarian audit dibiarkan ±1–2 detik pada volume uji. Gabungan kolom pencarian (`search_text`) dicoba dan hanya menghemat ±10 %, jadi tidak dipakai. | Volume uji ≈ 10+ tahun data DPMPTSP; pada volume realistis (< 20.000 dokumen) di bawah 0,5 detik. Bila kelak perlu: RPC pencarian berbasis indeks trigram per tabel. |
+| 5 | Setiap halaman dimuat per rute (*code splitting*): bundel awal 380 KB → **166 KB** (49 KB gzip). | Login dan halaman verifikasi QR di ponsel lebih cepat. |
+
+### 15.3 Ketahanan & operasional
+
+| # | Keputusan | Alasan |
+|---|-----------|--------|
+| 1 | **Batas galat rute**: galat di halaman tampil sebagai pesan ramah di dalam tata letak (sidebar tetap); detail teknis dapat dibuka. | Tidak ada layar putih kosong. |
+| 2 | **Deploy baru saat aplikasi terbuka**: bila file halaman lama sudah hilang, aplikasi memuat ulang **sekali** ke alamat tujuan; bila gagal lagi dalam 30 detik, tampil pesan (tanpa loop). | Pola umum kegagalan SPA setelah deploy. Diuji E2E dengan memblokir file halaman. |
+| 3 | Spanduk **offline** dan garis progres saat pindah halaman. | Jaringan di daerah tidak selalu stabil. |
+| 4 | Halaman **Pengaturan** (Super Admin): nama instansi (kop laporan, label QR, sidebar), batas unggah 1–10 MB, hari peringatan masa berlaku. Nilai divalidasi **trigger database** (tipe, rentang, kunci dikenal); tambah/hapus kunci ditutup. Informasi versi & waktu build. | Instansi dapat menyesuaikan tanpa mengubah kode; aturan tidak dapat dilewati lewat API. |
+| 5 | **Integritas penyimpanan**: laporan file tanpa catatan dan catatan tanpa file; Super Admin dapat menghapus file yatim > 1 jam lewat policy Storage yang hanya cocok untuk file yatim. | Menutup risiko residu Fase 4 (file tertinggal bila pencatatan gagal) tanpa membuka hak hapus arsip. |
+| 6 | Hak eksekusi fungsi baru **tertutup secara bawaan** (`alter default privileges … revoke execute … from public, anon`). | Fungsi yang ditambahkan kelak tidak otomatis terbuka untuk publik. |
+| 7 | Header keamanan ditambah **HSTS**, **COOP** `same-origin`, **CORP** `same-origin`. | Melengkapi CSP, X-Frame-Options, nosniff, Referrer-Policy, Permissions-Policy. |
+| 8 | Dependensi: React Router 7.18 dan Vite 7.3 (menutup advisori open redirect React Router dan advisori server dev Vite). Sisa `npm audit` hanya rantai alat build Tailwind 3 (chokidar/braces/glob, postcss-selector-parser) — tidak ikut ke bundel produksi dan tidak memproses input pengguna. | Upgrade ke Tailwind 4 adalah penulisan ulang konfigurasi; risikonya tidak sebanding. |
+| 9 | **Backup**: backup database Supabase tidak menyertakan isi file Storage, sehingga disediakan `backup-storage.mjs` (unduh + verifikasi SHA-256 + manifest, bertahap) dan `restore-storage.mjs` (lokasi sama, tanpa menimpa). | Arsip perizinan adalah dokumen bernilai hukum; database tanpa file tidak berguna. |

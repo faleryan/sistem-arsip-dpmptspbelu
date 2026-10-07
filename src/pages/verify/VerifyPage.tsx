@@ -19,7 +19,7 @@ const VERDICT: Record<PublicLicense["status"], Verdict> = {
   AKTIF: {
     icon: ShieldCheck,
     title: "Izin sah dan berlaku",
-    text: "Data izin ini tercatat resmi di arsip DPMPTSP Kabupaten Belu.",
+    text: "Data izin ini tercatat resmi di arsip instansi penerbit.",
     cls: "border-emerald-200 bg-emerald-50 text-emerald-900",
   },
   DITERBITKAN: {
@@ -70,7 +70,7 @@ export default function VerifyPage() {
 
       <main className="mx-auto max-w-2xl px-4 py-8">
         <h1 className="text-xl font-semibold text-navy-900">Verifikasi Izin</h1>
-        <p className="mt-1 text-sm text-muted-foreground">{AGENCY_NAME}</p>
+        <p className="mt-1 text-sm text-muted-foreground">{q.data?.agency || AGENCY_NAME}</p>
 
         <div className="mt-6">
           {!raw ? (

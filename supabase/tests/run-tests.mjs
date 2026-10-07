@@ -361,7 +361,9 @@ await t("master data: semua dapat baca, hanya Super Admin yang dapat ubah", asyn
 group("Viewer (akses terbatas)");
 await t("viewer hanya melihat izin berstatus publik; tanpa pemohon/perusahaan/NIK", async () => {
   const pub = (await one(null, `select count(*)::int c from public.licenses where deleted_at is null and status in ('DITERBITKAN','AKTIF','BERAKHIR')`)).c;
-  const seen = await q(U.vw, `select status from public.licenses`);
+  // Sejak 0013 Viewer tidak membaca tabel dasar (kolom internal); data izin publik lewat view.
+  eq((await q(U.vw, `select status from public.licenses`)).length, 0);
+  const seen = await q(U.vw, `select status from public.v_license_search`);
   eq(seen.length, pub);
   ok(seen.every((s) => ["DITERBITKAN", "AKTIF", "BERAKHIR"].includes(s.status)));
   eq((await q(U.vw, `select * from public.applicants`)).length, 0);
@@ -503,14 +505,17 @@ await t("arsip tidak dapat ditimpa atau dihapus oleh user mana pun", async () =>
     eq(await affected(who, `delete from storage.objects`), 0);
   }
 });
-await t("baca file: internal semua; viewer hanya folder surat-izin pada izin publik", async () => {
+await t("baca file tanpa catatan dokumen: Super Admin/Admin Arsip, dan pengunggah yang berhak pada izin itu", async () => {
   const pubLic = await licByApp("PMH-2026-90001");
   await run(null, `insert into storage.objects (bucket_id, name) values ('perizinan-documents', $1), ('perizinan-documents', $2), ('perizinan-documents', $3)`,
     [objPath(pubLic, "surat-izin", "izin-publik.pdf"), objPath(pubLic, "ktp", "ktp-publik.pdf"), objPath(L2, "surat-izin", "izin-draft.pdf")]);
   const names = async (who) => (await q(who, `select name from storage.objects where name like '%publik.pdf' or name like '%izin-draft.pdf'`)).map((r) => r.name.split("/").pop()).sort();
-  eq((await names(U.vw)).join(","), "izin-publik.pdf");
-  eq((await names(U.pt)).join(","), "izin-draft.pdf,izin-publik.pdf,ktp-publik.pdf");
-  eq((await names(U.vf)).length, 3);
+  // Akses file mengikuti catatan versi dokumen (0013); objek di atas tidak punya catatan.
+  eq((await names(U.vw)).length, 0);
+  eq((await names(U.pt)).join(","), "izin-draft.pdf", "petugas: hanya izin DRAFT miliknya (hak unggah)");
+  eq((await names(U.vf)).length, 0);
+  eq((await names(U.sa)).join(","), "izin-draft.pdf,izin-publik.pdf,ktp-publik.pdf");
+  eq((await names(U.ad)).length, 3);
   eq((await q("anon", `select 1`)).length, 1);
   await denied("anon", `select * from storage.objects`, [], /permission denied/);
 });
@@ -715,6 +720,202 @@ await t("DITERBITKAN→AKTIF, AKTIF→BERAKHIR, peringatan kedaluwarsa tanpa dup
   const r2 = (await one(null, `select public.run_daily_license_maintenance() r`)).r;
   eq(r2.expiry_warnings, 0, "tidak boleh membuat notifikasi ganda");
   eq((await one(null, `select count(*)::int c from public.notifications where type = 'izin_akan_berakhir'`)).c, c1);
+});
+
+// ── Fase 7: audit keamanan, pengaturan, integritas Storage ─────────────────
+group("Audit keamanan (supabase/audit/security_audit.sql)");
+const AUDIT = read("audit", "security_audit.sql");
+const audit = async () => (await db.query(AUDIT)).rows;
+await t("tidak ada temuan TINGGI/SEDANG selain akun uji & data contoh", async () => {
+  const bad = (await audit()).filter((r) => r.tingkat !== "INFO" && !["Akun uji masih ada", "Data contoh masih ada"].includes(r.pemeriksaan));
+  eq(bad.length, 0, `temuan: ${JSON.stringify(bad)}`);
+});
+await t("akun uji & data contoh terdeteksi sebagai temuan produksi", async () => {
+  const r = await audit();
+  eq(r.filter((x) => x.pemeriksaan === "Akun uji masih ada").length, 6);
+  eq(r.find((x) => x.pemeriksaan === "Data contoh masih ada")?.objek, "5 pemohon contoh");
+});
+await t("audit mendeteksi setiap jenis pelanggaran", async () => {
+  await db.exec(`begin;
+    alter table public.units disable row level security;
+    grant select on public.licenses to anon;
+    create function public.zz_definer() returns int language sql security definer as 'select 1';
+    grant execute on function public.zz_definer() to anon;
+    create view public.zz_view as select id from public.licenses;
+    create policy zz_anon on public.applicants for select to anon using (true);
+    create policy zz_upd on storage.objects for update to authenticated using (true);
+    create policy zz_del on storage.objects for delete to authenticated using (true);
+    grant truncate on public.applicants to authenticated;
+    grant update on public.audit_logs to authenticated;
+    update storage.buckets set public = true, file_size_limit = null where id = 'perizinan-documents';
+    create policy zz_slow on public.units for select to authenticated using (public.has_role('super_admin'));
+    alter role authenticated reset jit;
+    grant insert on public.v_staff to authenticated;
+    grant update (note) on public.license_status_history to authenticated;
+    grant execute on function public.notify_user(uuid, text, text, text, text, uuid) to authenticated;
+    create function public.has_role(int) returns boolean language sql security definer set search_path = public as 'select true';
+    grant execute on function public.has_role(int) to authenticated;`);
+  try {
+    const got = new Set((await audit()).filter((r) => r.tingkat !== "INFO").map((r) => `${r.pemeriksaan}|${r.objek}`));
+    for (const want of [
+      "RLS nonaktif|units", "Hak tabel untuk anon|licenses", "Fungsi dapat dipanggil anon|zz_definer()",
+      "SECURITY DEFINER tanpa search_path|zz_definer()", "SECURITY DEFINER belum ditinjau|zz_definer()",
+      "View tanpa security_invoker|zz_view", "Policy terbuka untuk anon/public|public.applicants · zz_anon",
+      "Policy Storage tidak sesuai desain|objects · zz_upd", "Policy Storage tidak sesuai desain|objects · zz_del",
+      "View dapat ditulis pengguna|v_staff", "Tabel riwayat dapat diubah langsung|license_status_history", "SECURITY DEFINER belum ditinjau|has_role(integer)",
+      "Fungsi internal dapat dipanggil pengguna|public.notify_user(uuid,text,text,text,text,uuid)",
+      "Hak TRUNCATE/REFERENCES/TRIGGER untuk authenticated|applicants",
+      "Tabel riwayat dapat diubah langsung|audit_logs", "Bucket dokumen publik|perizinan-documents",
+      "Batas ukuran bucket|perizinan-documents", "Policy memanggil fungsi peran per baris|public.units · zz_slow",
+      "JIT aktif untuk role API|authenticated",
+    ]) ok(got.has(want), `tidak terdeteksi: ${want}`);
+  } finally {
+    await db.exec("rollback");
+  }
+});
+await t("fungsi baru di schema public tidak otomatis dapat dipanggil anon", async () => {
+  await db.exec(`begin; create function public.zz_baru() returns int language sql as 'select 1';`);
+  try {
+    eq((await one(null, `select has_function_privilege('anon', 'public.zz_baru()', 'execute') x`)).x, false);
+  } finally {
+    await db.exec("rollback");
+  }
+});
+
+group("Pengaturan sistem");
+const setting = async (key) => (await one(null, `select value from public.system_settings where key = $1`, [key])).value;
+await t("Super Admin dapat mengubah pengaturan; nilai dirapikan dan pengubah tercatat", async () => {
+  eq(await affected(U.sa, `update public.system_settings set value = to_jsonb('  DPMPTSP Belu  '::text) where key = 'agency_short_name'`), 1);
+  eq(await setting("agency_short_name"), "DPMPTSP Belu");
+  eq((await one(null, `select updated_by from public.system_settings where key = 'agency_short_name'`)).updated_by, U.sa.id);
+  await run(U.sa, `update public.system_settings set value = '45' where key = 'expiry_warning_days'`);
+  eq(await setting("expiry_warning_days"), 45);
+  await run(U.sa, `update public.system_settings set value = '30' where key = 'expiry_warning_days'`);
+});
+await t("nilai di luar batas ditolak", async () => {
+  await denied(U.sa, `update public.system_settings set value = '20' where key = 'max_upload_mb'`, [], /1–10 MB/);
+  await denied(U.sa, `update public.system_settings set value = '0' where key = 'expiry_warning_days'`, [], /1–365/);
+  await denied(U.sa, `update public.system_settings set value = '2.5' where key = 'max_upload_mb'`, [], /bilangan bulat/);
+  await denied(U.sa, `update public.system_settings set value = '"10"' where key = 'max_upload_mb'`, [], /angka/);
+  await denied(U.sa, `update public.system_settings set value = to_jsonb('abc'::text) where key = 'agency_name'`, [], /5–200/);
+});
+await t("pengaturan tidak dapat ditambah/dihapus, dan role lain tidak dapat mengubah", async () => {
+  await denied(U.sa, `insert into public.system_settings (key, value) values ('x', '1')`, [], /permission denied/);
+  await denied(U.sa, `delete from public.system_settings where key = 'max_upload_mb'`, [], /permission denied/);
+  eq(await affected(U.ad, `update public.system_settings set value = '5' where key = 'max_upload_mb'`), 0);
+  eq(await setting("max_upload_mb"), 10);
+});
+
+group("Integritas Storage & file yatim");
+let orphanOld, orphanNew;
+await t("hanya Super Admin yang dapat membuka laporan integritas", async () => {
+  for (const who of [U.ad, U.pt, U.vf, U.pm, U.vw]) {
+    await denied(who, `select * from public.storage_integrity_report()`, [], /Super Admin/);
+  }
+  await denied("anon", `select * from public.storage_integrity_report()`, [], /permission denied/);
+});
+await t("laporan memuat file yatim dan versi yang file-nya hilang", async () => {
+  const ktp = await typeOf("KTP");
+  orphanOld = await putObject(U.pt, pathFor(LA, ktp.storage_folder, "yatim-lama.pdf"));
+  orphanNew = await putObject(U.pt, pathFor(LA, ktp.storage_folder, "yatim-baru.pdf"));
+  await db.query(`update storage.objects set created_at = now() - interval '2 hours' where name = $1`, [orphanOld]);
+  const { ver } = await addDoc(U.pt, LA.id, "KTP", "hilang.pdf");
+  await db.query(`delete from storage.objects where name = $1`, [ver.storage_path]);
+  const r = await q(U.sa, `select * from public.storage_integrity_report()`);
+  const by = (p) => r.find((x) => x.storage_path === p);
+  eq(by(orphanOld)?.kind, "FILE_YATIM"); eq(by(orphanOld).deletable, true);
+  eq(by(orphanNew)?.kind, "FILE_YATIM"); eq(by(orphanNew).deletable, false, "unggahan < 1 jam");
+  eq(by(ver.storage_path)?.kind, "FILE_HILANG");
+  eq(by(orphanOld).license_id, LA.id);
+});
+await t("Super Admin hanya dapat menghapus file yatim berumur > 1 jam", async () => {
+  eq(await affected(U.ad, `delete from storage.objects where name = $1`, [orphanOld]), 0, "admin arsip");
+  eq(await affected(U.sa, `delete from storage.objects where name = $1`, [orphanNew]), 0, "file baru");
+  const versioned = (await one(null, `select v.storage_path from public.document_versions v
+      join storage.objects o on o.name = v.storage_path limit 1`)).storage_path;
+  await db.query(`update storage.objects set created_at = now() - interval '2 hours' where name = $1`, [versioned]);
+  eq(await affected(U.sa, `delete from storage.objects where name = $1`, [versioned]), 0, "file berversi");
+  eq(await affected(U.sa, `delete from storage.objects where name = $1`, [orphanOld]), 1, "file yatim");
+});
+
+group("Tinjauan keamanan independen: perbaikan (0013)");
+await t("view tidak dapat ditulis siapa pun (v_staff dulu bisa dipakai menaikkan role)", async () => {
+  for (const who of [U.vw, U.pt, U.vf, U.sa]) {
+    await denied(who, `delete from public.v_staff where id = $1`, [who.id], /permission denied/);
+    await denied(who, `insert into public.v_staff (id, full_name, role) values ($1, 'x', 'super_admin')`, [randomUUID()], /permission denied/);
+    await denied(who, `update public.v_staff set full_name = 'HACKED'`, [], /permission denied/);
+    await denied(who, `delete from public.v_license_completeness`, [], /permission denied/);
+  }
+  eq((await one(null, `select full_name from public.profiles where id = $1`, [U.sa.id])).full_name, "Super Admin Uji");
+});
+await t("profil tidak dapat dibuat/dihapus lewat API; Super Admin aktif terakhir tidak dapat dihapus", async () => {
+  await denied(U.sa, `insert into public.profiles (id, full_name, role) values ($1, 'x', 'viewer')`, [randomUUID()], /permission denied|Edge Function/);
+  await denied(null, `delete from public.profiles where id = $1`, [U.sa.id], /terakhir/);
+});
+await t("created_by tidak dapat dialihkan lewat update", async () => {
+  await run(U.pt, `update public.licenses set created_by = $1, notes = 'uji' where id = $2`, [U.pt2.id, LA.id]);
+  eq((await one(null, `select created_by from public.licenses where id = $1`, [LA.id])).created_by, U.pt.id);
+});
+await t("akun pembuat data tetap dapat dihapus (kaskade created_by → null tidak terhalang)", async () => {
+  const u = { id: randomUUID() };
+  await db.query(`insert into auth.users (id, email) values ($1, 'hapus@example.org')`, [u.id]);
+  await db.query(`insert into public.profiles (id, full_name, role) values ($1, 'Akan Dihapus', 'petugas')`, [u.id]);
+  const a = await one(u, `insert into public.applicants (full_name) values ('Pemohon Uji Hapus') returning id`);
+  await db.query(`delete from auth.users where id = $1`, [u.id]);
+  eq((await one(null, `select created_by from public.applicants where id = $1`, [a.id])).created_by, null);
+});
+await t("Viewer tidak membaca tabel licenses (kolom internal); izin publik tetap lewat v_license_search", async () => {
+  eq((await one(U.vw, `select count(*)::int c from public.licenses`)).c, 0);
+  ok((await one(U.vw, `select count(*)::int c from public.v_license_search`)).c > 0, "view kosong");
+  ok((await one(U.vw, `select count(*)::int c from public.documents`)).c > 0, "dokumen Surat Izin hilang");
+});
+await t("file dokumen terhapus & file tanpa catatan tidak dapat dibaca role internal biasa", async () => {
+  const seen = async (who, p) => (await one(who, `select count(*)::int c from storage.objects where name = $1`, [p])).c;
+  const { doc, ver } = await addDoc(U.pt, LA.id, "KTP", "baca.pdf");
+  eq(await seen(U.pt, ver.storage_path), 1, "versi aktif");
+  eq(await seen(U.vf, ver.storage_path), 1, "verifikator");
+  await run(U.ad, `update public.documents set deleted_at = now() where id = $1`, [doc.id]);
+  eq(await seen(U.pt, ver.storage_path), 0, "dokumen terhapus (petugas)");
+  eq(await seen(U.ad, ver.storage_path), 1, "dokumen terhapus (admin arsip untuk pemulihan)");
+  const ktp = await typeOf("KTP");
+  const orphan = await putObject(U.pt, pathFor(LA, ktp.storage_folder, "tanpa-catatan.pdf"));
+  eq(await seen(U.pt, orphan), 1, "pengunggah yang berhak (dibutuhkan Storage saat unggah)");
+  eq(await seen(U.vf, orphan), 0, "verifikator: file tanpa catatan");
+  eq(await seen(U.pt2, orphan), 0, "petugas lain");
+  eq(await seen(U.vw, orphan), 0, "viewer");
+  eq(await seen(U.sa, orphan), 1, "super admin");
+});
+await t("Viewer hanya membaca versi TERKINI Surat Izin pada izin publik", async () => {
+  const lic = await one(null, `select id, year from public.licenses where status = 'AKTIF' and deleted_at is null limit 1`);
+  const { doc, ver } = await addDoc(U.ad, lic.id, "SURAT_IZIN", "izin-v1.pdf");
+  const si = await typeOf("SURAT_IZIN");
+  const p2 = await putObject(U.ad, pathFor(lic, si.storage_folder, "izin-v2.pdf"));
+  await run(U.ad, `insert into public.document_versions (document_id, file_name, storage_path, mime_type, size_bytes)
+                   values ($1, 'izin-v2.pdf', $2, 'application/pdf', 1000)`, [doc.id, p2]);
+  const seen = async (p) => (await one(U.vw, `select count(*)::int c from storage.objects where name = $1`, [p])).c;
+  eq(await seen(ver.storage_path), 0, "versi lama");
+  eq(await seen(p2), 1, "versi terkini");
+});
+await t("unggahan tanpa catatan dibatasi 20 file per pengguna per izin per 24 jam", async () => {
+  const type = await one(null, `select id from public.license_types where code = 'IU'`);
+  const a = await one(null, `select id from public.applicants limit 1`);
+  const lic = await one(U.pt2, `insert into public.licenses (license_type_id, applicant_id) values ($1, $2) returning id, year`, [type.id, a.id]);
+  const ktp = await typeOf("KTP");
+  for (let i = 0; i < 20; i++) await putObject(U.pt2, pathFor(lic, ktp.storage_folder, `f${i}.pdf`));
+  await denied(U.pt2, `insert into storage.objects (bucket_id, name, owner, metadata) values ('perizinan-documents', $1, $2, '{}')`,
+    [pathFor(lic, ktp.storage_folder, "f20.pdf"), U.pt2.id], /row-level security/);
+});
+await t("audit mencatat IP dari cf-connecting-ip, bukan x-forwarded-for yang dapat diisi klien", async () => {
+  await db.query(`select set_config('request.headers', $1, false)`,
+    [JSON.stringify({ "cf-connecting-ip": "203.0.113.9", "x-forwarded-for": "10.6.6.6, 203.0.113.9" })]);
+  try {
+    await run(U.sa, `update public.system_settings set value = '29' where key = 'expiry_warning_days'`);
+  } finally {
+    await db.query(`select set_config('request.headers', '', false)`);
+  }
+  const r = await one(null, `select ip_address from public.audit_logs where module = 'system_settings' order by created_at desc limit 1`);
+  eq(r.ip_address, "203.0.113.9");
+  await run(U.sa, `update public.system_settings set value = '30' where key = 'expiry_warning_days'`);
 });
 
 // ── Ringkasan ───────────────────────────────────────────────────────────────

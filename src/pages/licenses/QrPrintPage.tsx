@@ -8,12 +8,13 @@ import { qrSvgDataUrl } from "@/lib/qr";
 import { getLicense } from "@/services/licenses";
 import { publicVerifyUrl } from "@/services/publicVerify";
 import { formatDate } from "@/utils/format";
-import { AGENCY_NAME } from "@/types/domain";
+import { useAgency } from "@/hooks/useSettings";
 import { QR_STATUSES } from "./QrCard";
 
 /** Label QR siap cetak (sekitar 9 × 13 cm) untuk ditempel atau disisipkan pada surat izin. */
 export default function QrPrintPage() {
   const { id = "" } = useParams();
+  const agency = useAgency();
   const lic = useQuery({ queryKey: ["licenses", "detail", id], queryFn: () => getLicense(id) });
   const l = lic.data;
   const url = l ? publicVerifyUrl(l.verification_code) : "";
@@ -39,7 +40,7 @@ export default function QrPrintPage() {
       </div>
 
       <article className="w-[9cm] rounded-lg border-2 border-navy-900 bg-white p-[0.5cm] text-center text-navy-900 print:rounded-none">
-        <p className="text-[9pt] font-semibold uppercase leading-tight">{AGENCY_NAME}</p>
+        <p className="text-[9pt] font-semibold uppercase leading-tight">{agency.name}</p>
         <p className="mt-1 text-[8pt] text-slate-600">Verifikasi keaslian izin</p>
         {svg.data ? <img src={svg.data} alt="QR verifikasi" className="mx-auto mt-2 h-[5.5cm] w-[5.5cm]" /> : <Skeleton className="mx-auto mt-2 h-[5.5cm] w-[5.5cm]" />}
         <p className="mt-1 font-mono text-[11pt] font-bold tracking-[0.2em]">{l.verification_code}</p>

@@ -26,7 +26,12 @@ export type ActivityItem = {
 type Filter = (q: any) => any;
 
 async function count(table: "licenses" | "documents", filter?: Filter): Promise<number> {
-  const base = supabase.from(table).select("id", { count: "exact", head: true }).is("deleted_at", null);
+  // Izin dihitung dari v_license_search: sudah menyaring baris terhapus dan baris per role
+  // (Viewer tidak membaca tabel licenses secara langsung).
+  const base =
+    table === "licenses"
+      ? supabase.from("v_license_search").select("id", { count: "exact", head: true })
+      : supabase.from(table).select("id", { count: "exact", head: true }).is("deleted_at", null);
   const { count: n, error } = await (filter ? filter(base) : base);
   if (error) throw new Error(error.message);
   return (n as number | null) ?? 0;

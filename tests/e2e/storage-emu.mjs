@@ -2,11 +2,14 @@
 //  - POST /storage/v1/object/{bucket}/{path}   unggah (batas ukuran & MIME bucket, tanpa upsert)
 //  - POST /storage/v1/object/sign/{bucket}/{path}  signed URL
 //  - GET  /storage/v1/object/sign/{bucket}/{path}?token=…[&download=nama]
+//  - GET  /storage/v1/object/{bucket}/{path}         unduh terautentikasi (dipakai alat backup)
+//  - DELETE /storage/v1/object/{bucket}  body {prefixes: [...]}  hapus (mengembalikan objek yang terhapus)
+// JWT ber-role service_role melewati RLS (SET LOCAL ROLE service_role, BYPASSRLS), seperti Supabase.
 // Hak akses TIDAK ditiru: setiap operasi dijalankan sebagai user (SET LOCAL ROLE authenticated +
 // request.jwt.claims) sehingga policy RLS storage.objects dari migration 0005 yang memutuskan,
 // persis seperti layanan Storage Supabase. HANYA untuk pengujian.
 import crypto from "node:crypto";
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync, existsSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import pg from "pg";
 
@@ -25,7 +28,7 @@ async function asUser(claims, fn) {
   try {
     await c.query("begin");
     await c.query("select set_config('request.jwt.claims', $1, true)", [JSON.stringify(claims)]);
-    await c.query("set local role authenticated");
+    await c.query(`set local role ${claims.role === "service_role" ? "service_role" : "authenticated"}`);
     const r = await fn(c);
     await c.query("commit");
     return r;
@@ -85,6 +88,34 @@ export function makeStorage({ verifyJwt, secret }) {
       const exp = Math.floor(Date.now() / 1000) + Number(expiresIn);
       const token = `${Buffer.from(JSON.stringify({ p: full, exp })).toString("base64url")}.${sigFor(full, exp)}`;
       return json(res, cors, 200, { signedURL: `/object/sign/${full}?token=${token}` });
+    }
+
+    // ── unduh terautentikasi ──
+    if (req.method === "GET") {
+      const [bucket, ...parts] = rest.split("/");
+      const name = parts.join("/");
+      const found = await asUser(claims, (c) =>
+        c.query("select metadata from storage.objects where bucket_id = $1 and name = $2", [bucket, name]));
+      const file = join(DIR, bucket, name);
+      if (!found.rowCount || !existsSync(file)) return fail(res, cors, 404, "not_found", "Object not found");
+      const meta = JSON.parse(readFileSync(file + ".meta.json", "utf8"));
+      res.writeHead(200, { ...cors, "content-type": meta.mimetype, "content-length": meta.size });
+      return res.end(readFileSync(file));
+    }
+
+    // ── hapus (policy DELETE yang memutuskan; baris yang tidak lolos RLS diabaikan diam-diam) ──
+    if (req.method === "DELETE") {
+      const bucket = rest.split("/")[0];
+      const { prefixes = [] } = JSON.parse(body.toString() || "{}");
+      const r = await asUser(claims, (c) =>
+        c.query("delete from storage.objects where bucket_id = $1 and name = any($2::text[]) returning name, id, metadata, created_at",
+          [bucket, prefixes]));
+      for (const row of r.rows) {
+        const file = join(DIR, bucket, row.name);
+        rmSync(file, { force: true });
+        rmSync(file + ".meta.json", { force: true });
+      }
+      return json(res, cors, 200, r.rows.map((x) => ({ name: x.name, id: x.id, bucket_id: bucket, metadata: x.metadata, created_at: x.created_at })));
     }
 
     // ── unggah ──

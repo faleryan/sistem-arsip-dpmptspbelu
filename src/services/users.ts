@@ -36,6 +36,13 @@ export type UpdateUserInput = Partial<Pick<UserRow, "full_name" | "role" | "is_a
 /** Ambil pesan galat dari respons Edge Function (body JSON {error}). */
 async function functionError(error: unknown): Promise<string> {
   const ctx = (error as { context?: Response } | null)?.context;
+  const name = (error as { name?: string } | null)?.name;
+  if (ctx && typeof ctx.status === "number" && ctx.status === 404) {
+    return "Edge Function admin-create-user belum di-deploy di proyek Supabase (lihat docs/DEPLOY.md langkah 5).";
+  }
+  if (name === "FunctionsFetchError" || name === "FunctionsRelayError") {
+    return "Tidak dapat menghubungi Edge Function admin-create-user. Periksa koneksi, deploy fungsi, dan secret ALLOWED_ORIGINS.";
+  }
   if (ctx && typeof ctx.json === "function") {
     try {
       const body = (await ctx.json()) as { error?: unknown };

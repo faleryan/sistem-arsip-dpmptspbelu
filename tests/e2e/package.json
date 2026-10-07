@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "gateway": "node gateway.mjs",
-    "test": "node run.mjs ../../dist-e2e ./hasil"
+    "test": "node run.mjs ../../dist-e2e ./hasil",
+    "test:backup": "node backup.test.mjs"
   },
   "devDependencies": {
     "playwright-core": "^1.63.0"

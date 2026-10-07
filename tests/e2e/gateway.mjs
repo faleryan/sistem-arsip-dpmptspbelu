@@ -31,6 +31,9 @@ function verifyJwt(authorization) {
   return claims.exp > Date.now() / 1000 ? claims : null;
 }
 const storage = makeStorage({ verifyJwt, secret: SECRET });
+const PASSWORDS = {}; // akun yang dibuat lewat API admin (uji Edge Function)
+import pg from "pg";
+const pool = new pg.Pool({ host: process.env.PGHOST || "/tmp", port: Number(process.env.PGPORT || 54329), user: "postgres", database: "sipar", max: 2 });
 
 const cors = { "access-control-allow-origin": "*", "access-control-allow-headers": "*", "access-control-allow-methods": "*", "access-control-expose-headers": "content-range, content-profile, content-disposition" };
 http.createServer((req, res) => {
@@ -39,10 +42,38 @@ http.createServer((req, res) => {
   req.on("data", (c) => chunks.push(c));
   req.on("end", () => {
     const body = Buffer.concat(chunks);
+    // Tiruan API admin Auth (hanya kunci service_role), dipakai uji Edge Function admin-create-user.
+    if (req.url.startsWith("/auth/v1/admin/users")) {
+      const claims = verifyJwt(req.headers.authorization);
+      const send = (st, obj) => { res.writeHead(st, { ...cors, "content-type": "application/json" }); res.end(JSON.stringify(obj)); };
+      if (claims?.role !== "service_role") return send(401, { msg: "service_role required" });
+      const id = req.url.split("/")[5]?.split("?")[0];
+      const b = JSON.parse(body.toString() || "{}");
+      (async () => {
+        if (req.method === "POST" && !id) {
+          if (Object.values(USERS).length && (USERS[b.email] || PASSWORDS[b.email])) return send(422, { code: 422, msg: "A user with this email address has already been registered" });
+          const r = await pool.query("insert into auth.users (id, email) values (gen_random_uuid(), $1) returning id", [b.email]);
+          USERS[b.email] = r.rows[0].id; PASSWORDS[b.email] = b.password;
+          return send(200, { id: r.rows[0].id, email: b.email, aud: "authenticated", role: "authenticated", user_metadata: b.user_metadata ?? {}, app_metadata: {}, created_at: new Date().toISOString() });
+        }
+        if (req.method === "PUT" && id) {
+          const email = Object.keys(USERS).find((k) => USERS[k] === id);
+          if (!email) return send(404, { msg: "User not found" });
+          if (b.password) PASSWORDS[email] = b.password;
+          return send(200, { id, email, aud: "authenticated", role: "authenticated", user_metadata: {}, app_metadata: {} });
+        }
+        if (req.method === "DELETE" && id) {
+          await pool.query("delete from auth.users where id = $1", [id]);
+          return send(200, {});
+        }
+        send(404, {});
+      })().catch((e) => send(500, { msg: String(e) }));
+      return;
+    }
     if (req.url.startsWith("/auth/v1/token")) {
       const { email, password } = JSON.parse(body.toString() || "{}");
       const id = USERS[email];
-      if (!id || password !== "SiparBelu#Uji2026") {
+      if (!id || password !== (PASSWORDS[email] ?? "SiparBelu#Uji2026")) {
         res.writeHead(400, { ...cors, "content-type": "application/json" });
         return res.end(JSON.stringify({ error: "invalid_grant", error_description: "Invalid login credentials" }));
       }

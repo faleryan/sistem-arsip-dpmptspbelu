@@ -3,7 +3,9 @@
 import { chromium } from "playwright-core";
 import http from "node:http";
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
-import { join, extname } from "node:path";
+import { join, extname, dirname } from "node:path";
+import { rmSync, mkdirSync as mkdirp } from "node:fs";
+import pg from "pg";
 
 const DIST = process.argv[2];
 const OUT = process.argv[3];
@@ -885,6 +887,106 @@ await step("SA: pulihkan izin dari Data Terhapus → kembali di Data Perizinan",
   await sa.goto(`${APP}/perizinan?q=503%2FUJI`);
   await sa.waitForSelector("tbody tr >> text=503/UJI/E2E/2026");
 });
+// ───────────────────────── Fase 7: pengaturan, integritas, ketahanan ─────────────────────────
+const db = new pg.Pool({ host: process.env.PGHOST || "/tmp", port: Number(process.env.PGPORT || 54329), user: "postgres", database: "sipar", max: 2 });
+const STORE = new URL("./.storage/perizinan-documents/", import.meta.url).pathname;
+
+await step("Pengaturan: nilai di luar batas ditolak; perubahan tersimpan dan dipakai di kop laporan", async () => {
+  await sa.setViewportSize({ width: 1366, height: 860 });
+  await sa.goto(`${APP}/pengaturan`);
+  const days = sa.getByLabel("Peringatan masa berlaku (hari)");
+  await days.waitFor();
+  await sa.waitForFunction(() => [...document.querySelectorAll("input")].some((i) => i.value.includes("Kabupaten Belu")));
+  await days.fill("500");
+  await sa.click("button:has-text('Simpan')");
+  await sa.waitForSelector("text=Jumlah hari harus 1–365");
+  await days.fill("45");
+  await sa.getByLabel("Nama instansi").fill("Dinas PMPTSP Kabupaten Belu (Uji E2E)");
+  await sa.click("button:has-text('Simpan')");
+  await toast(sa, "2 pengaturan disimpan");
+  await sa.reload();
+  await sa.waitForFunction(() => [...document.querySelectorAll("input")].some((i) => i.value === "45"));
+  await sa.goto(`${APP}/laporan`);
+  await sa.waitForSelector("text=Dinas PMPTSP Kabupaten Belu (Uji E2E)");
+  const audit = await db.query("select count(*)::int c from audit_logs where module = 'system_settings' and action = 'UPDATE'");
+  if (audit.rows[0].c < 2) throw new Error("perubahan pengaturan tidak tercatat di audit");
+  await shot(sa, "40-pengaturan");
+});
+
+await step("Admin Arsip tidak dapat membuka Pengaturan", async () => {
+  const { page, ctx } = await session("adminarsip@example.com");
+  await page.goto(`${APP}/pengaturan`);
+  await page.waitForURL(`${APP}/tidak-berwenang`);
+  if (await page.locator("nav[aria-label='Menu utama'] >> text=Pengaturan").count()) throw new Error("menu Pengaturan tampil");
+  await ctx.close();
+});
+
+let orphanOld = "", orphanNew = "", lostPath = "";
+await step("Integritas penyimpanan: file yatim terdeteksi & dihapus; versi tanpa file dilaporkan", async () => {
+  const lic = (await db.query("select id, year from licenses where deleted_at is null order by created_at limit 1")).rows[0];
+  const put = async (name, age) => {
+    const path = `${lic.year}/${lic.id}/ktp/${crypto.randomUUID()}-${name}`;
+    await db.query(`insert into storage.objects (bucket_id, name, metadata, created_at) values ('perizinan-documents', $1, '{"size":4,"mimetype":"application/pdf"}', now() - $2::interval)`, [path, age]);
+    mkdirp(dirname(STORE + path), { recursive: true });
+    writeFileSync(STORE + path, "%PDF");
+    writeFileSync(STORE + path + ".meta.json", JSON.stringify({ size: 4, mimetype: "application/pdf" }));
+    return path;
+  };
+  orphanOld = await put("yatim-lama.pdf", "2 hours");
+  orphanNew = await put("yatim-baru.pdf", "1 minute");
+  lostPath = (await db.query("select storage_path from document_versions order by uploaded_at limit 1")).rows[0].storage_path;
+  await db.query("delete from storage.objects where name = $1", [lostPath]);
+
+  await sa.goto(`${APP}/pengaturan`);
+  await sa.click("button:has-text('Periksa sekarang')");
+  await sa.waitForSelector(`td >> text=${orphanOld}`);
+  const body = await sa.locator("tbody").last().innerText();
+  for (const t of [orphanNew, lostPath, "Versi dokumen tanpa file", "baru diunggah"]) if (!body.includes(t)) throw new Error(`tidak tampil: ${t}`);
+  if ((await sa.locator("tbody input[type=checkbox]").count()) !== 1) throw new Error("hanya file yatim > 1 jam yang boleh dipilih");
+  await sa.click("input[aria-label='Pilih semua file yang dapat dihapus']");
+  await sa.click("button:has-text('Hapus 1 file terpilih')");
+  await sa.click("[role=dialog] button:has-text('Hapus permanen')");
+  await toast(sa, "1 file dihapus");
+  await sa.waitForFunction((p) => !document.body.innerText.includes(p), orphanOld);
+  if (existsSync(STORE + orphanOld)) throw new Error("file fisik masih ada");
+  const left = (await db.query("select count(*)::int c from storage.objects where name = any($1)", [[orphanOld, orphanNew]])).rows[0].c;
+  if (left !== 1) throw new Error(`sisa objek ${left}`);
+  await shot(sa, "41-integritas");
+});
+
+await step("Offline: spanduk koneksi muncul dan hilang kembali", async () => {
+  await sa.context().setOffline(true);
+  await sa.waitForSelector("text=Tidak ada koneksi internet");
+  await sa.context().setOffline(false);
+  await sa.waitForSelector("text=Tidak ada koneksi internet", { state: "detached" });
+});
+
+await step("Deploy baru: file halaman lama hilang → muat ulang otomatis sekali, lalu halaman terbuka", async () => {
+  await sa.goto(`${APP}/`);
+  await sa.waitForSelector("text=Total Perizinan");
+  await sa.evaluate(() => sessionStorage.removeItem("sipar.chunk-reload-at"));
+  let blocked = 0;
+  await sa.route(/\/assets\/AuditLogPage-[^/]+\.js$/, (r) => (blocked++ === 0 ? r.fulfill({ status: 404, body: "" }) : r.continue()));
+  await sa.click("nav[aria-label='Menu utama'] >> text=Audit Log");
+  await sa.waitForSelector("h2:text-is('Audit Log')", { timeout: 15000 });
+  const navType = await sa.evaluate(() => performance.getEntriesByType("navigation")[0].type);
+  if (navType !== "reload" || blocked < 2) throw new Error(`tidak dimuat ulang (type=${navType}, blocked=${blocked})`);
+  await sa.unroute(/\/assets\/AuditLogPage-[^/]+\.js$/);
+});
+
+await step("Galat pemuatan berulang: pesan ramah di dalam tata letak, tanpa loop muat ulang", async () => {
+  await sa.goto(`${APP}/`);
+  await sa.waitForSelector("text=Total Perizinan");
+  await sa.route(/\/assets\/TrashPage-[^/]+\.js$/, (r) => r.fulfill({ status: 404, body: "" }));
+  await sa.click("nav[aria-label='Menu utama'] >> text=Data Terhapus");
+  await sa.waitForSelector("text=Aplikasi baru saja diperbarui", { timeout: 15000 });
+  if (!(await sa.locator("nav[aria-label='Menu utama']").isVisible())) throw new Error("sidebar hilang");
+  await shot(sa, "42-galat-rute");
+  await sa.unroute(/\/assets\/TrashPage-[^/]+\.js$/);
+  await sa.click("button:has-text('Muat ulang')");
+  await sa.waitForSelector("h2:text-is('Data Terhapus')");
+});
+await db.end();
 await sa.close(); await saCtx.close();
 
 console.log(results.join("\n"));

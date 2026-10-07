@@ -1,5 +1,5 @@
 import { supabase } from "@/lib/supabase";
-import { check } from "@/lib/errors";
+import { AppError, check } from "@/lib/errors";
 import type {
   Applicant,
   Business,
@@ -80,11 +80,41 @@ export async function getLicense(id: string): Promise<LicenseDetail> {
       )
       .eq("id", id)
       .is("deleted_at", null)
-      .single(),
+      .maybeSingle(),
     supabase.from("v_license_search").select(VIEW_SELECT).eq("id", id).maybeSingle(),
   ]);
-  const row = check(main) as unknown as Omit<LicenseDetail, "summary">;
-  return { ...row, summary: (summary.data as LicenseRow | null) ?? null };
+  const row = check(main) as unknown as Omit<LicenseDetail, "summary"> | null;
+  const sum = (summary.data as LicenseRow | null) ?? null;
+  if (row) return { ...row, summary: sum };
+  // Viewer tidak membaca tabel licenses (kolom internal seperti catatan disembunyikan, RLS 0013):
+  // detail disusun dari view yang hanya memuat kolom aman.
+  if (!sum) throw new AppError("Data perizinan tidak ditemukan atau Anda tidak berwenang melihatnya.", "NOT_FOUND");
+  return {
+    id: sum.id,
+    license_number: sum.license_number,
+    application_number: sum.application_number,
+    nib: sum.nib,
+    license_type_id: sum.license_type_id,
+    applicant_id: sum.applicant_id,
+    business_id: sum.business_id,
+    district_id: sum.district_id,
+    application_date: sum.application_date,
+    issue_date: sum.issue_date,
+    expiry_date: sum.expiry_date,
+    status: sum.status,
+    officer_id: sum.officer_id,
+    verification_code: "",
+    year: sum.year,
+    notes: null,
+    created_by: null,
+    created_at: sum.created_at,
+    updated_at: sum.created_at,
+    license_type: { id: sum.license_type_id, code: sum.license_type_code, name: sum.license_type_name, validity_months: null },
+    district: sum.district_name ? { name: sum.district_name } : null,
+    applicant: null,
+    business: null,
+    summary: sum,
+  };
 }
 
 export type LicenseInput = {

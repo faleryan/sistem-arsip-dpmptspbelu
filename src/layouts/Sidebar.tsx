@@ -3,15 +3,17 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/useAuth";
 import { NAV_GROUPS } from "@/routes/navigation";
 import { Brand } from "@/components/shared/Brand";
+import { useAgency } from "@/hooks/useSettings";
 
 export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const { profile } = useAuth();
   const role = profile?.role;
+  const agency = useAgency();
 
   return (
     <div className="flex h-full flex-col bg-navy-900 text-navy-100">
       <div className="px-5 py-5">
-        <Brand inverted subtitle="DPMPTSP Kabupaten Belu" />
+        <Brand inverted subtitle={agency.shortName} />
       </div>
       <nav className="flex-1 space-y-5 overflow-y-auto px-3 pb-6" aria-label="Menu utama">
         {NAV_GROUPS.map((group) => {
