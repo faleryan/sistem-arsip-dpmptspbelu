@@ -3,6 +3,9 @@ import { createClient } from "@supabase/supabase-js";
 const url = import.meta.env.VITE_SUPABASE_URL;
 const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
+export const SUPABASE_URL: string = url || "http://localhost:54321";
+export const SUPABASE_ANON_KEY: string = anonKey || "anon-key-belum-diisi";
+
 /** True bila variabel lingkungan Supabase sudah diisi. */
 export const isSupabaseConfigured = Boolean(url && anonKey);
 
@@ -42,8 +45,8 @@ const sessionStorageAdapter = {
 // Bila belum dikonfigurasi, gunakan nilai placeholder agar aplikasi tetap bisa
 // dirender dan menampilkan layar "konfigurasi belum lengkap" (bukan blank page).
 export const supabase = createClient(
-  url || "http://localhost:54321",
-  anonKey || "anon-key-belum-diisi",
+  SUPABASE_URL,
+  SUPABASE_ANON_KEY,
   {
     auth: {
       persistSession: true,

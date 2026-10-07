@@ -4,6 +4,10 @@ Menjalankan aplikasi hasil build terhadap **PostgreSQL + PostgREST lokal** denga
 seperti Supabase, lalu mengklik alur nyata per role (Super Admin, Admin Arsip, Petugas, Verifikator, Viewer).
 Tidak menyentuh proyek Supabase Anda.
 
+`gateway.mjs` juga meniru **Storage API** (`storage-emu.mjs`): unggah, signed URL, dan unduh. Hak akses tidak
+ditiru — setiap operasi dijalankan sebagai user (`SET LOCAL ROLE authenticated` + klaim JWT) sehingga policy
+`storage.objects` dari migration 0005 yang memutuskan. File tersimpan di `tests/e2e/.storage/`.
+
 Kebutuhan: PostgreSQL 15+ (dengan contrib `pg_trgm`, `pgcrypto`), [PostgREST v12](https://github.com/PostgREST/postgrest/releases),
 Node 18+, dan Chromium/Chrome.
 
@@ -17,11 +21,12 @@ pg_ctl -D /tmp/sipar-pg -o "-p 54329 -k /tmp" -l /tmp/sipar-pg.log start
 
 # 3. PostgREST + gateway tiruan Supabase (dua terminal)
 postgrest pgrst.conf
+npm install                     # sekali: pg + playwright-core
 node gateway.mjs                # http://127.0.0.1:54321
 
 # 4. Build aplikasi yang diarahkan ke gateway, lalu jalankan uji
 cd ../.. && VITE_SUPABASE_URL=http://127.0.0.1:54321 VITE_SUPABASE_ANON_KEY=anon-key npx vite build --outDir dist-e2e
-cd tests/e2e && npm install && CHROME_PATH=/path/ke/chrome npm test
+cd tests/e2e && CHROME_PATH=/path/ke/chrome npm test
 ```
 
 Hasil: daftar skenario ✔/✘, daftar galat konsol/HTTP yang tidak diharapkan, dan screenshot di `hasil/`.

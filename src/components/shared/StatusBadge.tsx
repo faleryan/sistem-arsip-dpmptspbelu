@@ -11,7 +11,7 @@ const TONE: Record<Tone, string> = {
   red: "bg-red-50 text-red-700 ring-red-200",
 };
 
-/** Peta status izin/dokumen → warna lencana (dipakai di fase berikutnya). */
+/** Peta status izin/dokumen → warna lencana. */
 export const STATUS_TONE: Record<string, Tone> = {
   DRAFT: "gray",
   DIAJUKAN: "blue",
@@ -25,6 +25,7 @@ export const STATUS_TONE: Record<string, Tone> = {
   DIBATALKAN: "slate",
   MENUNGGU_VERIFIKASI: "amber",
   TERVERIFIKASI: "green",
+  DIARSIPKAN: "slate",
 };
 
 export function StatusBadge({ status, label }: { status: string; label?: string }) {
@@ -32,7 +33,7 @@ export function StatusBadge({ status, label }: { status: string; label?: string 
   return (
     <span
       className={cn(
-        "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset",
+        "inline-flex items-center whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset",
         TONE[tone],
       )}
     >

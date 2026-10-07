@@ -1,40 +1,57 @@
 import { useQuery } from "@tanstack/react-query";
-import { CheckCircle2, CircleDashed, Clock, XCircle } from "lucide-react";
+import { Archive, CheckCircle2, CircleDashed, Clock, Upload, XCircle } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { errorMessage } from "@/lib/errors";
 import { listRequiredDocs } from "@/services/reference";
-import { listDocumentStates } from "@/services/licenses";
 import { useDocumentTypes, REF_KEY } from "@/hooks/useReference";
+import type { DocumentRow } from "@/types/entities";
 
-const STATE_LABEL = {
-  verified: "Terverifikasi",
-  pending: "Menunggu verifikasi",
-  rejected: "Ditolak, perlu diganti",
-  missing: "Belum ada",
+const STATE = {
+  verified: { label: "Terverifikasi", icon: CheckCircle2, cls: "text-emerald-600" },
+  archived: { label: "Diarsipkan", icon: Archive, cls: "text-emerald-600" },
+  pending: { label: "Menunggu verifikasi", icon: Clock, cls: "text-amber-500" },
+  rejected: { label: "Ditolak, perlu diganti", icon: XCircle, cls: "text-red-500" },
+  missing: { label: "Belum ada", icon: CircleDashed, cls: "text-muted-foreground" },
 } as const;
+type State = keyof typeof STATE;
 
-/** Daftar dokumen wajib jenis izin ini beserta status unggah/verifikasinya. */
-export function CompletenessCard({ licenseId, licenseTypeId }: { licenseId: string; licenseTypeId: string }) {
+/** Dokumen wajib jenis izin ini beserta status unggah/verifikasinya. */
+export function CompletenessCard({
+  licenseTypeId,
+  docs,
+  docsLoading,
+  docsError,
+  onUpload,
+}: {
+  licenseTypeId: string;
+  docs: DocumentRow[] | undefined;
+  docsLoading: boolean;
+  docsError: unknown;
+  /** Bila diisi, item yang belum ada/ditolak menampilkan tombol unggah. */
+  onUpload?: (documentTypeId: string, existing?: DocumentRow) => void;
+}) {
   const docTypes = useDocumentTypes();
   const required = useQuery({ queryKey: [...REF_KEY, "required_docs", licenseTypeId], queryFn: () => listRequiredDocs(licenseTypeId) });
-  const docs = useQuery({ queryKey: ["licenses", "doc-states", licenseId], queryFn: () => listDocumentStates(licenseId) });
 
-  const loading = docTypes.isLoading || required.isLoading || docs.isLoading;
-  const error = docTypes.error ?? required.error ?? docs.error;
+  const loading = docTypes.isLoading || required.isLoading || docsLoading;
+  const error = docTypes.error ?? required.error ?? docsError;
   const names = new Map((docTypes.data ?? []).map((d) => [d.id, d.name]));
   const items = (required.data ?? []).map((typeId) => {
-    const ofType = (docs.data ?? []).filter((d) => d.document_type_id === typeId);
-    const state: keyof typeof STATE_LABEL = ofType.some((d) => d.status === "TERVERIFIKASI")
+    const ofType = (docs ?? []).filter((d) => d.document_type_id === typeId);
+    const state: State = ofType.some((d) => d.status === "TERVERIFIKASI")
       ? "verified"
-      : ofType.some((d) => d.status === "MENUNGGU_VERIFIKASI")
-        ? "pending"
-        : ofType.length
-          ? "rejected"
-          : "missing";
-    return { typeId, name: names.get(typeId) ?? "Dokumen", state };
+      : ofType.some((d) => d.status === "DIARSIPKAN")
+        ? "archived"
+        : ofType.some((d) => d.status === "MENUNGGU_VERIFIKASI")
+          ? "pending"
+          : ofType.length
+            ? "rejected"
+            : "missing";
+    return { typeId, name: names.get(typeId) ?? "Dokumen", state, rejectedDoc: state === "rejected" ? ofType[0] : undefined };
   });
-  const done = items.filter((i) => i.state === "verified").length;
+  const done = items.filter((i) => i.state === "verified" || i.state === "archived").length;
   const pct = items.length ? Math.round((done / items.length) * 100) : 100;
 
   return (
@@ -42,7 +59,7 @@ export function CompletenessCard({ licenseId, licenseTypeId }: { licenseId: stri
       <CardHeader>
         <CardTitle>Kelengkapan dokumen</CardTitle>
         <CardDescription>
-          {items.length ? `${done} dari ${items.length} dokumen wajib terverifikasi.` : "Jenis izin ini belum memiliki daftar dokumen wajib."}
+          {items.length ? `${done} dari ${items.length} dokumen wajib lengkap.` : "Jenis izin ini belum memiliki daftar dokumen wajib."}
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -71,21 +88,30 @@ export function CompletenessCard({ licenseId, licenseTypeId }: { licenseId: stri
               </div>
             ) : null}
             <ul className="space-y-2">
-              {items.map((i) => (
-                <li key={i.typeId} className="flex items-center gap-2 text-sm">
-                  {i.state === "verified" ? (
-                    <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" aria-hidden />
-                  ) : i.state === "pending" ? (
-                    <Clock className="h-4 w-4 shrink-0 text-amber-500" aria-hidden />
-                  ) : i.state === "rejected" ? (
-                    <XCircle className="h-4 w-4 shrink-0 text-red-500" aria-hidden />
-                  ) : (
-                    <CircleDashed className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
-                  )}
-                  <span className="flex-1">{i.name}</span>
-                  <span className="text-xs text-muted-foreground">{STATE_LABEL[i.state]}</span>
-                </li>
-              ))}
+              {items.map((i) => {
+                const s = STATE[i.state];
+                const Icon = s.icon;
+                const canAct = onUpload && (i.state === "missing" || i.state === "rejected");
+                return (
+                  <li key={i.typeId} className="flex items-center gap-2 text-sm">
+                    <Icon className={`h-4 w-4 shrink-0 ${s.cls}`} aria-hidden />
+                    <span className="min-w-0 flex-1">{i.name}</span>
+                    {canAct ? (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 text-accent"
+                        onClick={() => onUpload!(i.typeId, i.rejectedDoc)}
+                        aria-label={`Unggah ${i.name}`}
+                      >
+                        <Upload className="h-3.5 w-3.5" aria-hidden /> {i.state === "rejected" ? "Ganti" : "Unggah"}
+                      </Button>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">{s.label}</span>
+                    )}
+                  </li>
+                );
+              })}
             </ul>
           </>
         )}

@@ -125,13 +125,6 @@ export async function listHistory(licenseId: string): Promise<StatusHistory[]> {
   ) as StatusHistory[];
 }
 
-/** Status dokumen per jenis (untuk kartu kelengkapan). Mengikuti RLS dokumen pemanggil. */
-export async function listDocumentStates(licenseId: string): Promise<{ document_type_id: string; status: string }[]> {
-  return check(
-    await supabase.from("documents").select("document_type_id, status").eq("license_id", licenseId).is("deleted_at", null),
-  ) as { document_type_id: string; status: string }[];
-}
-
 /** Nama staf (tanpa data sensitif) untuk menampilkan petugas/pengubah status. */
 export async function listStaffNames(): Promise<Map<string, string>> {
   const rows = check(await supabase.from("v_staff").select("id, full_name")) as { id: string; full_name: string }[];

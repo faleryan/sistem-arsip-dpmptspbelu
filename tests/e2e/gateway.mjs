@@ -1,7 +1,9 @@
-// Gateway tiruan Supabase untuk uji E2E lokal: /rest/v1 → PostgREST (:3000), /auth/v1 → login sederhana (JWT HS256).
+// Gateway tiruan Supabase untuk uji E2E lokal: /rest/v1 → PostgREST (:3000), /auth/v1 → login sederhana (JWT HS256),
+// /storage/v1 → tiruan Storage API dengan policy RLS asli (storage-emu.mjs).
 // HANYA untuk pengujian. Kata sandi dan secret di bawah sengaja sama dengan seed_test_users.sql dan pgrst.conf.
 import http from "node:http";
 import crypto from "node:crypto";
+import { makeStorage } from "./storage-emu.mjs";
 const SECRET = "sipar-local-test-secret-0123456789abcdef";
 const USERS = {
   "superadmin@example.com": "11111111-1111-1111-1111-111111111101",
@@ -19,7 +21,18 @@ export function sign(sub, email) {
   const s = crypto.createHmac("sha256", SECRET).update(`${h}.${p}`).digest("base64url");
   return `${h}.${p}.${s}`;
 }
-const cors = { "access-control-allow-origin": "*", "access-control-allow-headers": "*", "access-control-allow-methods": "*", "access-control-expose-headers": "content-range, content-profile" };
+/** Verifikasi JWT HS256 buatan gateway ini; kembalikan klaim atau null. */
+function verifyJwt(authorization) {
+  const tok = (authorization || "").replace(/^Bearer /, "");
+  const [h, p, s] = tok.split(".");
+  if (!h || !p || !s) return null;
+  if (crypto.createHmac("sha256", SECRET).update(`${h}.${p}`).digest("base64url") !== s) return null;
+  const claims = JSON.parse(Buffer.from(p, "base64url").toString());
+  return claims.exp > Date.now() / 1000 ? claims : null;
+}
+const storage = makeStorage({ verifyJwt, secret: SECRET });
+
+const cors = { "access-control-allow-origin": "*", "access-control-allow-headers": "*", "access-control-allow-methods": "*", "access-control-expose-headers": "content-range, content-profile, content-disposition" };
 http.createServer((req, res) => {
   if (req.method === "OPTIONS") { res.writeHead(204, cors); return res.end(); }
   const chunks = [];
@@ -44,6 +57,9 @@ http.createServer((req, res) => {
       try { const p = JSON.parse(Buffer.from(tok.split(".")[1], "base64url")); res.writeHead(200, { ...cors, "content-type": "application/json" });
         return res.end(JSON.stringify({ id: p.sub, aud: "authenticated", role: "authenticated", email: p.email, app_metadata: {}, user_metadata: {} })); }
       catch { res.writeHead(401, cors); return res.end("{}"); }
+    }
+    if (req.url.startsWith("/storage/v1/object/")) {
+      return storage(req, res, body, cors).catch((e) => { res.writeHead(500, cors); res.end(String(e)); });
     }
     if (req.url.startsWith("/rest/v1/")) {
       const headers = { ...req.headers }; delete headers.host; delete headers.apikey;

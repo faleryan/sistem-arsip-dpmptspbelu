@@ -158,3 +158,49 @@ export type StatusTransition = {
 };
 
 export type Completeness = { required_count: number; uploaded_count: number; verified_count: number };
+
+export const DOC_STATUSES = ["MENUNGGU_VERIFIKASI", "TERVERIFIKASI", "DITOLAK", "DIARSIPKAN"] as const;
+export type DocStatus = (typeof DOC_STATUSES)[number];
+
+export const DOC_STATUS_LABEL: Record<DocStatus, string> = {
+  MENUNGGU_VERIFIKASI: "Menunggu verifikasi",
+  TERVERIFIKASI: "Terverifikasi",
+  DITOLAK: "Ditolak",
+  DIARSIPKAN: "Diarsipkan",
+};
+
+/** Baris dari view v_document_search (dokumen + versi aktif + ringkasan izin). */
+export type DocumentRow = {
+  id: string;
+  license_id: string;
+  title: string;
+  document_number: string | null;
+  document_date: string | null;
+  status: DocStatus;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+  document_type_id: string;
+  document_type_code: string;
+  document_type_name: string;
+  storage_folder: string;
+  archive_class_id: string | null;
+  archive_class_code: string | null;
+  archive_class_name: string | null;
+  version_id: string | null;
+  version_no: number | null;
+  file_name: string | null;
+  mime_type: string | null;
+  size_bytes: number | null;
+  storage_path: string | null;
+  checksum_sha256: string | null;
+  uploaded_at: string | null;
+  uploaded_by: string | null;
+  application_number: string;
+  license_number: string | null;
+  license_type_name: string;
+  license_status: LicenseStatus;
+  applicant_name: string;
+  business_name: string | null;
+  year: number | null;
+};

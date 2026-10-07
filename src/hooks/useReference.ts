@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import {
+  listArchiveClasses,
   listDistricts,
   listDocumentTypes,
   listLicenseTypes,
@@ -29,3 +30,6 @@ export const useDocumentTypes = (activeOnly = false) =>
   useQuery({ queryKey: [...REF_KEY, "document_types", activeOnly], queryFn: () => listDocumentTypes(activeOnly), staleTime: STALE });
 
 export const useUnitsRef = () => useQuery({ queryKey: [...REF_KEY, "units"], queryFn: listUnitsRef, staleTime: STALE });
+
+export const useArchiveClasses = () =>
+  useQuery({ queryKey: [...REF_KEY, "archive_classes"], queryFn: listArchiveClasses, staleTime: STALE });

@@ -23,16 +23,23 @@ export function Dropdown({
   const panel = useRef<HTMLDivElement>(null);
   const close = useCallback(() => setOpen(false), []);
 
-  useLayoutEffect(() => {
-    if (!open || !btn.current) return;
+  // Hitung posisi panel dari posisi tombol. Kembalikan false bila tombol sudah keluar layar.
+  const place = useCallback((): boolean => {
+    if (!btn.current) return false;
     const r = btn.current.getBoundingClientRect();
+    if (r.bottom < 0 || r.top > window.innerHeight) return false;
     const h = panel.current?.offsetHeight ?? 200;
     const below = r.bottom + 4 + h < window.innerHeight;
     setPos({
       top: below ? r.bottom + 4 : Math.max(8, r.top - 4 - h),
       left: Math.min(Math.max(8, r.right - width), window.innerWidth - width - 8),
     });
-  }, [open, width]);
+    return true;
+  }, [width]);
+
+  useLayoutEffect(() => {
+    if (open) place();
+  }, [open, place]);
 
   useEffect(() => {
     if (!open) return;
@@ -46,8 +53,10 @@ export function Dropdown({
         btn.current?.focus();
       }
     };
+    // Halaman digulir: panel ikut tombol; tutup hanya bila tombol keluar layar.
     const onScroll = (e: Event) => {
-      if (!panel.current?.contains(e.target as Node)) setOpen(false);
+      if (panel.current?.contains(e.target as Node)) return;
+      if (!place()) setOpen(false);
     };
     document.addEventListener("mousedown", onDown);
     document.addEventListener("keydown", onKey);
@@ -59,7 +68,7 @@ export function Dropdown({
       window.removeEventListener("scroll", onScroll, true);
       window.removeEventListener("resize", close);
     };
-  }, [open, close]);
+  }, [open, close, place]);
 
   return (
     <>

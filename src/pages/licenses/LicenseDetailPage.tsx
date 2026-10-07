@@ -20,6 +20,11 @@ import { ACTION_LABEL, DANGER_TARGETS } from "./status";
 import { StatusChangeDialog } from "./StatusChangeDialog";
 import { StatusHistoryCard } from "./StatusHistoryCard";
 import { CompletenessCard } from "./CompletenessCard";
+import { listLicenseDocuments } from "@/services/documents";
+import { DocumentDialogs, type DocDialog } from "@/pages/documents/DocumentDialogs";
+import { LicenseDocumentsCard } from "@/pages/documents/LicenseDocumentsCard";
+import { documentPermissions } from "@/pages/documents/permissions";
+import type { UploadTarget } from "@/pages/documents/UploadDocumentDialog";
 
 export default function LicenseDetailPage() {
   const { id = "" } = useParams();
@@ -29,8 +34,14 @@ export default function LicenseDetailPage() {
   const internal = profile?.role !== "viewer";
   const [action, setAction] = useState<StatusTransition | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [docDialog, setDocDialog] = useState<DocDialog>(null);
 
   const q = useQuery({ queryKey: ["licenses", "detail", id], queryFn: () => getLicense(id) });
+  const docs = useQuery({
+    queryKey: ["documents", "license", id],
+    queryFn: () => listLicenseDocuments(id),
+    enabled: !!q.data,
+  });
   const status = q.data?.status;
   const transitions = useQuery({
     queryKey: ["licenses", "transitions", status],
@@ -78,7 +89,9 @@ export default function LicenseDetailPage() {
 
   const l = q.data;
   const perms = licensePermissions(profile, l);
+  const docPerms = documentPermissions(profile, l);
   const title = l.license_number ?? l.application_number;
+  const uploadTarget: UploadTarget = { licenseId: l.id, year: l.year, licenseStatus: l.status, label: title };
   const applicantName = l.applicant?.full_name ?? l.summary?.applicant_name;
   const businessName = l.business?.name ?? l.summary?.business_name;
 
@@ -130,8 +143,9 @@ export default function LicenseDetailPage() {
         </div>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-3">
-        <div className="space-y-6 lg:col-span-2">
+      {/* grid-cols-1 = minmax(0,1fr): teks yang dipotong (truncate) tidak melebarkan kolom di ponsel */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <div className="min-w-0 space-y-6 lg:col-span-2">
           <Card>
             <CardHeader>
               <CardTitle>Data izin</CardTitle>
@@ -157,7 +171,7 @@ export default function LicenseDetailPage() {
             </CardContent>
           </Card>
 
-          <div className="grid gap-6 md:grid-cols-2">
+          <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
             <Card>
               <CardHeader>
                 <CardTitle>Pemohon</CardTitle>
@@ -199,14 +213,45 @@ export default function LicenseDetailPage() {
               </CardContent>
             </Card>
           </div>
+
+          <LicenseDocumentsCard
+            docs={docs.data}
+            loading={docs.isLoading}
+            error={docs.error}
+            onRetry={() => docs.refetch()}
+            perms={docPerms}
+            onUpload={() => setDocDialog({ kind: "upload", target: uploadTarget, mode: { kind: "new" } })}
+            onPreview={(d) => setDocDialog({ kind: "preview", doc: d })}
+            onNewVersion={(d) => setDocDialog({ kind: "upload", target: uploadTarget, mode: { kind: "version", document: d } })}
+            onEditMeta={(d) => setDocDialog({ kind: "meta", doc: d })}
+            onDelete={(d) => setDocDialog({ kind: "delete", doc: d })}
+          />
         </div>
 
-        <div className="space-y-6">
-          {internal ? <CompletenessCard licenseId={l.id} licenseTypeId={l.license_type_id} /> : null}
+        <div className="min-w-0 space-y-6">
+          {internal ? (
+            <CompletenessCard
+              licenseTypeId={l.license_type_id}
+              docs={docs.data}
+              docsLoading={docs.isLoading}
+              docsError={docs.error}
+              onUpload={
+                docPerms.canUpload
+                  ? (typeId, existing) =>
+                      setDocDialog({
+                        kind: "upload",
+                        target: uploadTarget,
+                        mode: existing ? { kind: "version", document: existing } : { kind: "new", presetTypeId: typeId },
+                      })
+                  : undefined
+              }
+            />
+          ) : null}
           {internal ? <StatusHistoryCard licenseId={l.id} staff={staff.data} /> : null}
         </div>
       </div>
 
+      <DocumentDialogs dialog={docDialog} onClose={() => setDocDialog(null)} />
       {action ? (
         <StatusChangeDialog
           licenseId={l.id}

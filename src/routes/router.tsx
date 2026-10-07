@@ -14,6 +14,7 @@ import ApplicantDetailPage from "@/pages/applicants/ApplicantDetailPage";
 import BusinessesPage from "@/pages/businesses/BusinessesPage";
 import BusinessDetailPage from "@/pages/businesses/BusinessDetailPage";
 import MasterDataPage from "@/pages/master/MasterDataPage";
+import ArchivePage from "@/pages/documents/ArchivePage";
 import ComingSoonPage from "@/pages/shared/ComingSoonPage";
 import NotFoundPage from "@/pages/shared/NotFoundPage";
 
@@ -57,7 +58,7 @@ export const router = createBrowserRouter([
               { path: "perusahaan/:id", element: <BusinessDetailPage /> },
             ],
           },
-          { path: "arsip/*", element: <ComingSoonPage title="Arsip Digital" phase={4} /> },
+          { path: "arsip", element: <ArchivePage /> },
           {
             element: <RoleGuard roles={["super_admin", "admin_arsip", "petugas", "verifikator", "pimpinan"]} />,
             children: [{ path: "laporan", element: <ComingSoonPage title="Laporan" phase={6} /> }],

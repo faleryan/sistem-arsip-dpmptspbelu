@@ -86,7 +86,7 @@ function MasterTable({ entity }: { entity: MasterEntity }) {
         }
       />
 
-      <div className="grid gap-6 lg:grid-cols-[220px_1fr]">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[220px_1fr]">
         <nav aria-label="Jenis master data" className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1 lg:mx-0 lg:flex-col lg:overflow-visible lg:px-0">
           {MASTER_ENTITIES.map((e) => {
             const Icon = e.icon;

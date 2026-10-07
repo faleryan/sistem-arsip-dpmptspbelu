@@ -4,12 +4,17 @@ Sistem Informasi Pengarsipan dan Manajemen Dokumen Perizinan — DPMPTSP Kabupat
 
 React + TypeScript + Vite + Tailwind · Supabase (Auth, PostgreSQL + RLS, Storage) · hosting Vercel.
 
-Desain lengkap: [`docs/00-DESAIN.md`](docs/00-DESAIN.md). Status: **Fase 1–3 selesai** (lihat roadmap di dokumen desain).
+Desain lengkap: [`docs/00-DESAIN.md`](docs/00-DESAIN.md). Status: **Fase 1–4 selesai** (lihat roadmap di dokumen desain).
 
 Yang sudah bisa dipakai: login dan peran, dashboard, Pengguna & Role, **Data Perizinan** (daftar, tambah, detail,
 ubah, ubah status sesuai workflow, riwayat status, kelengkapan dokumen), **Pemohon**, **Perusahaan**, dan
 **Master Data** (jenis izin + dokumen wajib, jenis dokumen, kecamatan, desa/kelurahan, klasifikasi arsip, unit).
 Semua tabel punya pencarian, filter, urut, paginasi server, pilihan kolom, dan ekspor CSV.
+
+**Arsip Digital** (Fase 4): unggah PDF/JPG/PNG ke bucket privat dari halaman detail izin (dengan progres, cek isi
+file, checksum SHA-256), metadata dokumen (jenis, judul, nomor, tanggal, klasifikasi), unggah versi baru, pratinjau
+dan unduh lewat signed URL berumur pendek, hapus lunak oleh Admin, serta halaman **Arsip Digital** berisi seluruh
+dokumen lintas izin.
 
 ## Menjalankan lokal
 
@@ -24,7 +29,10 @@ npm run build             # typecheck + build produksi ke dist/
 
 1. Buat proyek di supabase.com. Ambil **Project URL** dan **anon public key** (Settings → API).
 2. SQL Editor → jalankan file di `supabase/migrations/` **berurutan**, satu per satu:
-   `0001` → `0002` → `0003` → `0004` → `0005` → `0006`. Semuanya aman dijalankan ulang.
+   `0001` → `0002` → `0003` → `0004` → `0005` → `0006` → `0007` → `0008`. Semuanya aman dijalankan ulang.
+   **`0007` harus dijalankan sendiri** (satu kali *Run*), baru kemudian `0008` — PostgreSQL tidak mengizinkan
+   status enum baru dipakai dalam eksekusi yang sama dengan penambahannya.
+   Sudah menjalankan 0001–0006 di fase sebelumnya? Cukup jalankan `0007` lalu `0008`.
    Bila muncul catatan tentang `pg_cron`, aktifkan di Database → Extensions lalu jalankan ulang `0003`
    (penjadwalan harian: izin berakhir otomatis + notifikasi).
 3. Buat Super Admin pertama (langkah manual di bagian bawah `0001`).
@@ -36,10 +44,14 @@ npm run build             # typecheck + build produksi ke dist/
    Kunci service role disuntik otomatis oleh Supabase; **jangan** menaruhnya di frontend atau Vercel.
 6. (Opsional, hanya proyek uji) `supabase/seed.sql` untuk data contoh, dan `supabase/seed_test_users.sql`
    untuk 6 akun uji, satu per role (kata sandi tertulis di file itu — hapus sebelum produksi).
+   Dokumen contoh di `seed.sql` hanya metadata tanpa file, sehingga pratinjaunya menampilkan
+   "File tidak ditemukan di penyimpanan". Dokumen yang Anda unggah sendiri dapat dibuka normal.
+7. Setelah deploy, coba sekali: unggah PDF di detail izin lalu buka pratinjaunya. Bila area pratinjau kosong,
+   pakai tombol **Tab baru** atau **Unduh** dan beri tahu saya (lihat catatan pratinjau di dokumen desain bagian 12).
 
 ## Menguji database (RLS, workflow, storage)
 
-Suite ini menjalankan semua migration di PostgreSQL lokal (PGlite) dan menguji 59 skenario per role:
+Suite ini menjalankan semua migration di PostgreSQL lokal (PGlite) dan menguji 69 skenario per role:
 
 ```bash
 cd supabase/tests
@@ -51,7 +63,8 @@ Catatan: ini meniru role/skema Supabase (`mock_supabase.sql`), bukan Supabase su
 singkat di proyek Anda (login tiap role uji, coba unggah dan verifikasi) setelah Fase 4.
 
 Uji antarmuka end-to-end (opsional, untuk pengembang): `tests/e2e/README.md` — menjalankan aplikasi terhadap
-PostgreSQL + PostgREST lokal dan mengklik alur nyata tiap role (21 skenario).
+PostgreSQL + PostgREST lokal (dengan tiruan Storage API yang memakai policy RLS asli) dan mengklik alur nyata
+tiap role (32 skenario, termasuk unggah, pratinjau, unduh, dan versi dokumen).
 
 ## Deploy ke Vercel
 

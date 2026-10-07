@@ -60,6 +60,14 @@ export function toAppError(error: unknown): AppError {
         /row-level security|permission denied/i.test(msg) ? "Anda tidak berwenang melakukan tindakan ini." : msg,
         e.code,
       );
+    case "PGRST202":
+    case "PGRST205":
+    case "42883":
+    case "42P01":
+      return new AppError(
+        "Fitur ini membutuhkan pembaruan database. Pastikan semua migration terbaru (supabase/migrations) sudah dijalankan.",
+        e.code,
+      );
     case "PGRST116":
       return new AppError("Data tidak ditemukan atau Anda tidak memiliki akses.", e.code);
     case "PGRST301":

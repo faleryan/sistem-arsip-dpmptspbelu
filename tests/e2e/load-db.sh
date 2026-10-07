@@ -13,4 +13,6 @@ grep -v "^create role" "$P/tests/mock_supabase.sql" | $PSQL -d sipar -f - >/dev/
 for f in "$P"/migrations/*.sql; do $PSQL -d sipar -f "$f" >/dev/null 2>&1 || { echo "GAGAL: $f"; $PSQL -d sipar -f "$f" 2>&1 | grep ERROR; exit 1; }; done
 $PSQL -d sipar -f "$P/seed.sql" >/dev/null
 $PSQL -d sipar -f "$P/seed_test_users.sql" >/dev/null
+$PSQL -d sipar -c "notify pgrst, 'reload schema'"   # PostgREST memuat ulang cache skema
+rm -rf "$HERE/.storage"   # file tiruan Storage ikut dikosongkan
 echo "database sipar dimuat ulang"

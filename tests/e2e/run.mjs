@@ -355,6 +355,178 @@ await step("Viewer: hanya izin publik; tanpa menu Pemohon/Perusahaan, riwayat, d
 });
 await vw.close(); await vwCtx.close();
 
+// ───────────────────────── Fase 4: Arsip digital ─────────────────────────
+const PDF = Buffer.from(
+  "%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n" +
+  "3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 300 200]>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n");
+const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
+const fileInput = "[role=dialog] input[type=file]";
+const docsCard = "div.rounded-xl:has(h3:text-is('Dokumen arsip'))";
+async function chooseType(p, name) {
+  const v = await p.locator("[role=dialog] label:has-text('Jenis dokumen') + select option", { hasText: name }).first().getAttribute("value");
+  await p.selectOption("[role=dialog] label:has-text('Jenis dokumen') + select", v);
+}
+let storagePosts = 0;
+
+({ page: pt, ctx: ptCtx } = await session("petugas@example.com"));
+pt.on("request", (r) => { if (r.method() === "POST" && /\/storage\/v1\/object\/perizinan/.test(r.url())) storagePosts++; });
+
+await step("Petugas: unggah KTP (PDF) ke izin miliknya; tercatat Menunggu verifikasi", async () => {
+  await pt.goto(newLicenseUrl);
+  await pt.click("button:has-text('Unggah dokumen')");
+  await chooseType(pt, "KTP");
+  if ((await pt.inputValue("[role=dialog] label:has-text('Judul dokumen') + input")) !== "KTP") throw new Error("judul tidak otomatis");
+  await pt.fill("[role=dialog] label:has-text('Nomor dokumen') + input", "KTP/5304/001");
+  await pt.setInputFiles(fileInput, { name: "KTP Maria.pdf", mimeType: "application/pdf", buffer: PDF });
+  await pt.waitForSelector("[role=dialog] >> text=KTP Maria.pdf");
+  await shot(pt, "30-unggah-dialog");
+  await pt.click("[role=dialog] button[type=submit]");
+  await toast(pt, "Dokumen diunggah");
+  await pt.waitForSelector(`${docsCard} >> text=Menunggu verifikasi`);
+  await pt.waitForSelector(`${docsCard} >> text=No. KTP/5304/001`);
+  await pt.waitForSelector("div.rounded-xl:has(h3:text-is('Kelengkapan dokumen')) li:has-text('KTP'):has-text('Menunggu verifikasi')");
+});
+
+await step("Petugas: file PNG bernama .pdf ditolak sebelum dikirim ke Storage", async () => {
+  const before = storagePosts;
+  await pt.click("button:has-text('Unggah dokumen')");
+  await chooseType(pt, "Dokumen Pendukung");
+  await pt.setInputFiles(fileInput, { name: "palsu.pdf", mimeType: "application/pdf", buffer: PNG });
+  await pt.click("[role=dialog] button[type=submit]");
+  await pt.waitForSelector("[role=dialog] >> text=Isi file adalah PNG, tetapi ekstensinya .pdf");
+  if (storagePosts !== before) throw new Error("file tetap dikirim ke Storage");
+  await pt.click("[role=dialog] button:has-text('Batal')");
+});
+
+await step("Petugas: unggah dari kartu kelengkapan (jenis terisi otomatis), gambar PNG", async () => {
+  await pt.click("button[aria-label='Unggah Surat Permohonan']");
+  const sel = await pt.locator("[role=dialog] label:has-text('Jenis dokumen') + select option:checked").innerText();
+  if (sel !== "Surat Permohonan") throw new Error(`jenis terpilih: ${sel}`);
+  await pt.setInputFiles(fileInput, { name: "surat-permohonan.png", mimeType: "image/png", buffer: PNG });
+  await pt.waitForSelector("[role=dialog] img"); // thumbnail lokal
+  await pt.click("[role=dialog] button[type=submit]");
+  await toast(pt, "Dokumen diunggah");
+  await pt.waitForSelector(`${docsCard} button[aria-label='Lihat Surat Permohonan']`);
+  await shot(pt, "31-detail-dokumen");
+});
+
+await step("Pratinjau: PDF via signed URL di iframe; gambar tampil", async () => {
+  await pt.click(`${docsCard} button[aria-label='Lihat KTP']`);
+  const src = await (await pt.waitForSelector("[role=dialog] iframe")).getAttribute("src");
+  if (!/\/storage\/v1\/object\/sign\/perizinan-documents\/.+token=/.test(src)) throw new Error(src);
+  const r = await pt.request.get(src);
+  if (r.status() !== 200 || r.headers()["content-type"] !== "application/pdf") throw new Error(`${r.status()} ${r.headers()["content-type"]}`);
+  await shot(pt, "32-pratinjau-pdf");
+  await pt.keyboard.press("Escape");
+  await pt.click(`${docsCard} button[aria-label='Lihat Surat Permohonan']`);
+  await pt.waitForFunction(() => { const i = document.querySelector("[role=dialog] img"); return i && i.complete && i.naturalWidth > 0; });
+  await pt.keyboard.press("Escape");
+});
+
+await step("Unduh: file asli dengan nama aslinya, isi identik", async () => {
+  const [dl] = await Promise.all([pt.waitForEvent("download"), pt.click(`${docsCard} button[aria-label='Unduh KTP']`)]);
+  if (dl.suggestedFilename() !== "KTP Maria.pdf") throw new Error(dl.suggestedFilename());
+  const got = readFileSync(await dl.path());
+  if (!got.equals(PDF)) throw new Error("isi file berbeda");
+});
+
+await step("Versi baru (v2) dan ubah info dokumen", async () => {
+  await pt.click(`${docsCard} button[aria-label='Aksi lain KTP']`);
+  await pt.click("[role=menuitem]:has-text('Unggah versi baru')");
+  await pt.waitForSelector("[role=dialog] >> text=Versi aktif:");
+  await pt.setInputFiles(fileInput, { name: "KTP Maria v2.pdf", mimeType: "application/pdf", buffer: PDF });
+  await pt.click("[role=dialog] button[type=submit]");
+  await toast(pt, "Versi baru diunggah");
+  await pt.waitForSelector(`${docsCard} >> text=/· v2 ·/`);
+  await pt.click(`${docsCard} button[aria-label='Aksi lain KTP']`);
+  if (await pt.locator("[role=menuitem]:has-text('Hapus')").count()) throw new Error("petugas melihat menu Hapus");
+  await pt.click("[role=menuitem]:has-text('Ubah info')");
+  await pt.fill("[role=dialog] label:has-text('Judul dokumen') + input", "KTP Maria Uji Coba");
+  await pt.click("[role=dialog] button[type=submit]");
+  await toast(pt, "Info dokumen disimpan");
+  await pt.waitForSelector(`${docsCard} button[aria-label='Lihat KTP Maria Uji Coba']`);
+});
+
+await step("Storage menolak unggahan Petugas ke izin yang bukan miliknya (policy RLS)", async () => {
+  expectedHttp = [/storage\/v1\/object\/perizinan-documents.* 400 .*row-level security/];
+  const res = await pt.evaluate(async () => {
+    const raw = localStorage.getItem("sb-127-auth-token") ?? sessionStorage.getItem("sb-127-auth-token");
+    const token = JSON.parse(raw).access_token;
+    const lic = (await (await fetch("http://127.0.0.1:54321/rest/v1/v_license_search?select=id,year&application_number=eq.PMH-2026-90004", {
+      headers: { authorization: `Bearer ${token}`, apikey: "anon-key" } })).json())[0];
+    const r = await fetch(`http://127.0.0.1:54321/storage/v1/object/perizinan-documents/${lic.year}/${lic.id}/ktp/${crypto.randomUUID()}-x.pdf`, {
+      method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/pdf" }, body: "%PDF-1.4" });
+    return r.json();
+  });
+  if (res.statusCode !== "403") throw new Error(JSON.stringify(res));
+});
+await pt.close(); await ptCtx.close();
+
+({ page: vf, ctx: vfCtx } = await session("verifikator@example.com"));
+await step("Verifikator: dapat melihat dokumen, tanpa unggah/ubah/hapus", async () => {
+  await vf.goto(newLicenseUrl);
+  await vf.waitForSelector(`${docsCard} button[aria-label='Lihat KTP Maria Uji Coba']`);
+  if (await vf.locator("button:has-text('Unggah dokumen')").count()) throw new Error("tombol unggah tampil");
+  await vf.click(`${docsCard} button[aria-label='Aksi lain KTP Maria Uji Coba']`);
+  await vf.waitForSelector("[role=menuitem]");
+  const items = await vf.locator("[role=menuitem]").allInnerTexts();
+  if (items.join("|") !== "Lihat") throw new Error(items.join("|"));
+  await vf.keyboard.press("Escape");
+});
+await vf.close(); await vfCtx.close();
+
+({ page: ad, ctx: adCtx } = await session("adminarsip@example.com"));
+await step("Admin Arsip: Surat Izin pada izin AKTIF langsung Diarsipkan; hapus dokumen", async () => {
+  await ad.goto(`${APP}/perizinan?q=PMH-2026-90002`);
+  await ad.click("tbody tr >> text=PMH-2026-90002");
+  await ad.waitForSelector(docsCard);
+  await ad.click("button:has-text('Unggah dokumen')");
+  await chooseType(ad, "Surat Izin");
+  await ad.waitForSelector("[role=dialog] >> text=langsung berstatus");
+  await ad.fill("[role=dialog] label:has-text('Judul dokumen') + input", "Surat Izin Operasional (pindaian)");
+  await ad.setInputFiles(fileInput, { name: "surat-izin.pdf", mimeType: "application/pdf", buffer: PDF });
+  await ad.click("[role=dialog] button[type=submit]");
+  await toast(ad, "Dokumen diunggah");
+  const item = ad.locator(`${docsCard} li`, { hasText: "Surat Izin Operasional (pindaian)" });
+  await item.locator("text=Diarsipkan").waitFor();
+  await ad.click(`${docsCard} button[aria-label='Aksi lain NPWP (contoh)']`);
+  await ad.click("[role=menuitem]:has-text('Hapus')");
+  await ad.click("[role=dialog] button:has-text('Hapus')");
+  await toast(ad, "Dokumen dihapus dari arsip");
+  await ad.waitForSelector(`${docsCard} button[aria-label='Lihat NPWP (contoh)']`, { state: "detached" });
+  await shot(ad, "33-admin-diarsipkan");
+});
+await ad.close(); await adCtx.close();
+
+({ page: vw, ctx: vwCtx } = await session("viewer@example.com"));
+await step("Viewer: Arsip Digital hanya Surat Izin; pratinjau berfungsi", async () => {
+  await vw.goto(`${APP}/arsip`);
+  await vw.waitForSelector("tbody tr >> text=Surat Izin Operasional (pindaian)");
+  const types = await vw.locator("tbody tr td:nth-child(2)").allInnerTexts();
+  if (!types.length || types.some((t) => t !== "Surat Izin")) throw new Error(types.join(","));
+  await vw.click("tbody tr >> text=Surat Izin Operasional (pindaian)");
+  const src = await (await vw.waitForSelector("[role=dialog] iframe")).getAttribute("src");
+  if ((await vw.request.get(src)).status() !== 200) throw new Error("pratinjau gagal");
+  await shot(vw, "34-viewer-arsip");
+});
+await vw.close(); await vwCtx.close();
+
+({ page: sa, ctx: saCtx } = await session("superadmin@example.com"));
+await step("Arsip Digital: filter jenis, cari nama file, ekspor CSV", async () => {
+  await sa.goto(`${APP}/arsip`);
+  await sa.waitForSelector("tbody tr >> text=KTP Maria Uji Coba");
+  await shot(sa, "35-arsip-digital");
+  await sa.selectOption("select[aria-label='Jenis dokumen']", { label: "KTP" });
+  await sa.waitForURL(/f_type=/);
+  await sa.waitForFunction(() => [...document.querySelectorAll("tbody tr td:nth-child(2)")].every((td) => td.textContent === "KTP"));
+  await sa.fill("input[type=search]", "Maria v2");
+  await sa.waitForFunction(() => document.querySelectorAll("tbody tr").length === 1 && document.querySelector("tbody").innerText.includes("KTP Maria Uji Coba"));
+  const [dl] = await Promise.all([sa.waitForEvent("download"), sa.click("button:has-text('Ekspor CSV')")]);
+  const csv = readFileSync(await dl.path(), "utf8");
+  if (!csv.includes("KTP Maria Uji Coba") || csv.trim().split("\r\n").length !== 2) throw new Error(csv);
+});
+await sa.close(); await saCtx.close();
+
 // ───────────────────────── Super Admin: hapus + mobile ─────────────────────────
 ({ page: sa, ctx: saCtx } = await session("superadmin@example.com", { w: 390, h: 844 }));
 await step("Mobile 390px: daftar & detail tanpa scroll horizontal halaman", async () => {

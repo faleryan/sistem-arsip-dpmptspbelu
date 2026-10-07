@@ -333,3 +333,31 @@ terhadap PostgreSQL + PostgREST lokal (`tests/e2e`, 21 skenario) dan suite datab
 | 7 | Digitalisasi arsip izin lama: Admin memilih status awal **Aktif** atau **Berakhir**; nomor izin dan tanggal terbit wajib; tanggal berakhir dihitung dari masa berlaku jenis izin bila dikosongkan (aturan akhir bulan sama dengan PostgreSQL). | Menindaklanjuti perubahan #7 bagian 10. |
 | 8 | Tombol ubah status hanya menampilkan transisi yang sah untuk role (dari `license_status_transitions`), dengan catatan wajib sesuai kolom `requires_note`. Prasyarat (dokumen terunggah/terverifikasi, nomor izin) tetap diperiksa `change_license_status()` dan pesannya ditampilkan apa adanya. | Satu sumber aturan di database. |
 | 9 | Hapus pemohon/perusahaan/izin = hapus lunak oleh Super Admin. Halaman pemulihan (*restore*) dibuat bersama Audit Log di Fase 5; sementara itu data tetap ada di database. | Arsip tidak boleh hilang. |
+
+---
+
+## 12. Keputusan saat Fase 4 (Arsip Digital)
+
+Migration baru: `0007_doc_status_archived.sql` (jalankan sendiri) dan `0008_archive.sql`. Suite database 69/69 lulus
+(10 skenario baru, dua di antaranya diuji ulang dengan mutasi dan terbukti terdeteksi). Uji antarmuka 32/32 lulus dua
+putaran berturut-turut, termasuk unggah, pratinjau, unduh, dan versi baru melalui tiruan Storage API yang memakai
+policy RLS asli.
+
+| # | Keputusan | Alasan |
+|---|-----------|--------|
+| 1 | Status dokumen baru **DIARSIPKAN**. Dokumen yang diunggah ke izin yang sudah melewati verifikasi (Disetujui, Diterbitkan, Aktif, Berakhir, Dicabut, Dibatalkan) langsung berstatus ini dan tidak masuk antrean verifikator. Dihitung "lengkap" di kartu kelengkapan. | `verify_document()` hanya berlaku saat izin Diajukan/Verifikasi. Tanpa status ini, Surat Izin dan hasil pindai arsip lama akan "Menunggu verifikasi" selamanya dan mengacaukan statistik dashboard. |
+| 2 | Versi dokumen hanya dapat dicatat bila **file benar-benar ada di Storage** pada path itu, dengan ukuran dan MIME yang sama dengan metadata objek. | Mencegah catatan arsip "hantu" yang menunjuk file yang tidak ada atau berbeda. Pengecekan memakai fungsi baru `is_api_request()` (GUC `role` asal permintaan), karena `is_api_caller()` (`current_user`) selalu bernilai pemilik fungsi di dalam trigger `SECURITY DEFINER`. Celah ini ditemukan oleh tes, bukan asumsi. |
+| 3 | RPC `create_document()` (SECURITY **INVOKER**) membuat dokumen dan versi pertama dalam satu transaksi. Semua RLS dan trigger tetap berlaku sebagai pemanggil. | Tidak ada dokumen tanpa versi bila langkah kedua gagal; tidak ada eskalasi hak. |
+| 4 | Urutan unggah: **file ke Storage dulu, lalu catatan database.** Bila langkah database gagal, file yatim tertinggal di bucket (user tidak bisa menghapusnya karena tidak ada policy delete). | Urutan sebaliknya lebih buruk: catatan arsip tanpa file. File yatim tidak terlihat di aplikasi; laporan pembersihan direncanakan di Fase 7. |
+| 5 | Isi file diperiksa di browser (*magic bytes* PDF/JPEG/PNG harus cocok dengan ekstensi) sebelum dikirim. Server menegakkan ukuran ≤ 10 MB, MIME header yang diizinkan, format path, hak per izin, dan kecocokan metadata. Pemeriksaan isi file di server **belum** ada. | Pemeriksaan isi di server butuh Edge Function perantara; dicatat sebagai kandidat penguatan di Fase 7. |
+| 6 | Unggah memakai XHR langsung ke endpoint Storage (sama dengan `storage-js upload()`, `x-upsert: false`) agar progres persen dapat ditampilkan, dan dapat dibatalkan. | `supabase-js` belum menyediakan progres unggah. |
+| 7 | Pratinjau: signed URL **5 menit**, PDF di iframe (penampil PDF bawaan browser), gambar sebagai `<img>`. Unduh: signed URL **60 detik** dengan nama file asli. Tombol *Tab baru* dan *Unduh* selalu tersedia. CSP tidak diubah (`frame-src`/`img-src` sudah mengizinkan `*.supabase.co`). | Iframe memuat dokumen dari domain Supabase, sehingga tidak mewarisi CSP aplikasi (`object-src 'none'` dapat memblokir penampil PDF bila dipakai blob URL). Perlu dicek sekali di proyek nyata: bila area pratinjau kosong, kemungkinan header Storage melarang iframe dan pratinjau akan dialihkan ke tab baru. |
+| 8 | Unggah **versi baru** sudah tersedia (mis. mengganti dokumen yang ditolak; tombol *Ganti* juga muncul di kartu kelengkapan). Riwayat versi lengkap, perbandingan, dan UI verifikasi dikerjakan di Fase 5. | Alur arsip harus bisa dipakai penuh sejak fase ini. |
+| 9 | Jenis dokumen tidak dapat diubah setelah diunggah (guard `guard_document_write`); judul, nomor, tanggal, dan klasifikasi dapat diubah oleh pengelola dokumen. | Jenis menentukan folder Storage dan syarat kelengkapan; mengganti jenis = dokumen baru. |
+| 10 | View `v_document_search` (security_invoker) untuk halaman Arsip Digital: dokumen + versi aktif + ringkasan izin dari `v_license_search`. Viewer otomatis hanya melihat Surat Izin pada izin publik. | Satu sumber untuk tabel arsip dan pencarian lanjutan di Fase 6. |
+| 11 | Batas unggah mengikuti pengaturan `max_upload_mb` (bila lebih kecil dari 10 MB). | Instansi dapat memperketat tanpa mengubah kode. |
+| 12 | Bila RPC/view belum ada (migration lupa dijalankan), aplikasi menampilkan "Fitur ini membutuhkan pembaruan database…", bukan pesan teknis. `0008` diakhiri `notify pgrst, 'reload schema'`. | Ditemukan saat uji: cache skema PostgREST yang belum dimuat ulang memberi galat PGRST202. |
+
+Perbaikan lain yang ditemukan uji di fase ini: menu tarik-turun tidak lagi tertutup sendiri saat halaman bergeser
+sedikit (sekarang mengikuti posisi tombol), dan tata letak detail izin di ponsel tidak lagi melebar oleh nama file
+panjang.
