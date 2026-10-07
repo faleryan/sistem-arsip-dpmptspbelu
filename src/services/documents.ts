@@ -9,18 +9,22 @@ export const DOC_SELECT =
   "id, license_id, title, document_number, document_date, status, created_at, updated_at, created_by, document_type_id, document_type_code, document_type_name, storage_folder, archive_class_id, archive_class_code, archive_class_name, version_id, version_no, file_name, mime_type, size_bytes, storage_path, checksum_sha256, uploaded_at, uploaded_by, application_number, license_number, license_type_name, license_status, applicant_name, business_name, year";
 
 /** Daftar arsip dari view v_document_search (mengikuti RLS dokumen pemanggil). */
-export function documentSpec(base: Record<string, string> = {}): ListSpec {
+export function documentSpec(
+  base: Record<string, string> = {},
+  defaultSort: { field: string; asc: boolean } = { field: "uploaded_at", asc: false },
+): ListSpec {
   return {
     table: "v_document_search",
     select: DOC_SELECT,
     searchColumns: ["title", "document_number", "file_name", "application_number", "license_number", "applicant_name", "business_name"],
-    defaultSort: { field: "uploaded_at", asc: false },
+    defaultSort,
     sortable: ["title", "document_number", "document_date", "document_type_name", "status", "uploaded_at", "size_bytes", "application_number", "year"],
     apply: (q, filters) => {
       const f = { ...filters, ...base };
       if (f.license) q = q.eq("license_id", f.license);
       if (f.type) q = q.eq("document_type_id", f.type);
       if (f.status) q = q.eq("status", f.status);
+      if (f.license_status) q = q.in("license_status", f.license_status.split(","));
       if (f.class) q = q.eq("archive_class_id", f.class);
       if (f.mime) q = q.eq("mime_type", f.mime);
       if (f.year && /^\d{4}$/.test(f.year)) q = q.eq("year", Number(f.year));

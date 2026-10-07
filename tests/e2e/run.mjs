@@ -470,7 +470,7 @@ await step("Verifikator: dapat melihat dokumen, tanpa unggah/ubah/hapus", async 
   await vf.click(`${docsCard} button[aria-label='Aksi lain KTP Maria Uji Coba']`);
   await vf.waitForSelector("[role=menuitem]");
   const items = await vf.locator("[role=menuitem]").allInnerTexts();
-  if (items.join("|") !== "Lihat") throw new Error(items.join("|"));
+  if (items.join("|") !== "Lihat|Riwayat versi") throw new Error(items.join("|"));
   await vf.keyboard.press("Escape");
 });
 await vf.close(); await vfCtx.close();
@@ -527,6 +527,136 @@ await step("Arsip Digital: filter jenis, cari nama file, ekspor CSV", async () =
 });
 await sa.close(); await saCtx.close();
 
+// ───────────────────────── Fase 5: verifikasi, workflow, audit, pemulihan ─────────────────────────
+const todayWita = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Makassar" }).format(new Date());
+
+({ page: vf, ctx: vfCtx } = await session("verifikator@example.com"));
+await step("Verifikator: Antrean Verifikasi berisi dokumen permohonan yang diajukan", async () => {
+  await vf.goto(`${APP}/verifikasi`);
+  await vf.waitForSelector("tbody tr >> text=KTP Maria Uji Coba");
+  await vf.waitForSelector("tbody tr >> text=Surat Permohonan");
+  await shot(vf, "40-antrean-verifikasi");
+});
+await step("Verifikator: tolak KTP wajib beralasan; izin otomatis masuk tahap Verifikasi", async () => {
+  await vf.click("tbody tr >> text=KTP Maria Uji Coba");
+  await vf.waitForSelector("[role=dialog] iframe");
+  await vf.click("[role=dialog] [role=radio]:has-text('Tolak')");
+  await vf.click("[role=dialog] button:has-text('Simpan hasil')");
+  await vf.waitForSelector("[role=dialog] >> text=Alasan penolakan wajib diisi");
+  await vf.fill("[role=dialog] textarea", "Foto KTP buram, NIK tidak terbaca.");
+  await shot(vf, "41-dialog-verifikasi");
+  await vf.click("[role=dialog] button:has-text('Simpan hasil')");
+  await toast(vf, "Dokumen ditolak");
+  await vf.waitForSelector("tbody tr >> text=KTP Maria Uji Coba", { state: "detached" });
+  await vf.goto(newLicenseUrl);
+  await vf.waitForSelector("[aria-current=step] >> text=Verifikasi");
+});
+await vf.close(); await vfCtx.close();
+
+({ page: pt, ctx: ptCtx } = await session("petugas@example.com"));
+await step("Petugas: ganti KTP yang ditolak (v3) dari kartu kelengkapan; riwayat versi lengkap", async () => {
+  await pt.goto(newLicenseUrl);
+  await pt.waitForSelector(`${docsCard} >> text=Ditolak`);
+  await pt.click("button[aria-label='Unggah KTP']");
+  await pt.waitForSelector("[role=dialog] >> text=Versi aktif:");
+  await pt.setInputFiles(fileInput, { name: "KTP Maria jelas.pdf", mimeType: "application/pdf", buffer: PDF });
+  await pt.click("[role=dialog] button[type=submit]");
+  await toast(pt, "Versi baru diunggah");
+  await pt.waitForSelector(`${docsCard} >> text=/· v3 ·/`);
+  await pt.click(`${docsCard} button[aria-label='Aksi lain KTP Maria Uji Coba']`);
+  await pt.click("[role=menuitem]:has-text('Riwayat versi')");
+  await pt.waitForSelector("[role=dialog] >> text=Versi 3");
+  const txt = await pt.locator("[role=dialog] ol[aria-label='Daftar versi']").innerText();
+  for (const want of ["Versi 3", "Aktif", "Versi 2", "Foto KTP buram", "Versi 1"]) if (!txt.includes(want)) throw new Error(`riwayat tanpa "${want}"`);
+  await pt.click("[role=dialog] ol li:nth-child(2) button >> nth=0"); // pilih versi 2 → pratinjau berganti
+  await pt.waitForSelector("[role=dialog] iframe[title$='v2']");
+  await shot(pt, "42-riwayat-versi");
+  await pt.keyboard.press("Escape");
+});
+await pt.close(); await ptCtx.close();
+
+({ page: vf, ctx: vfCtx } = await session("verifikator@example.com"));
+await step("Verifikator: terima semua dokumen wajib lalu Setujui permohonan", async () => {
+  await vf.goto(newLicenseUrl);
+  for (const title of ["KTP Maria Uji Coba", "Surat Permohonan"]) {
+    await vf.click(`button[aria-label='Periksa ${title}']`);
+    await vf.click("[role=dialog] [role=radio]:has-text('Terima')");
+    await vf.click("[role=dialog] button:has-text('Simpan hasil')");
+    await toast(vf, "Dokumen diverifikasi");
+    await vf.waitForSelector(`button[aria-label='Periksa ${title}']`, { state: "detached" });
+  }
+  await vf.waitForSelector("text=Semua dokumen wajib sudah lengkap");
+  await vf.click("main button:has-text('Setujui')");
+  await vf.click("[role=dialog] button:has-text('Setujui')");
+  await toast(vf, "Status diubah menjadi Disetujui");
+  await vf.waitForSelector("[aria-current=step] >> text=Disetujui");
+});
+await vf.close(); await vfCtx.close();
+
+({ page: ad, ctx: adCtx } = await session("adminarsip@example.com"));
+await step("Admin Arsip: Terbitkan dicegah sebelum tanggal terbit diisi, lalu terbit → Aktif otomatis", async () => {
+  await ad.goto(newLicenseUrl);
+  await ad.click("main button:has-text('Terbitkan')");
+  await ad.waitForSelector("[role=dialog] >> text=belum diisi");
+  if (await ad.locator("[role=dialog] button:has-text('Terbitkan')").isEnabled()) throw new Error("tombol terbitkan aktif");
+  await ad.click("[role=dialog] button:has-text('Batal')");
+  await ad.goto(newLicenseUrl + "/ubah");
+  await ad.fill("label:has-text('Tanggal terbit') + input", todayWita);
+  await ad.click("button:has-text('Simpan perubahan')");
+  await ad.waitForURL(newLicenseUrl);
+  await ad.click("main button:has-text('Terbitkan')");
+  await ad.click("[role=dialog] button:has-text('Terbitkan')");
+  await toast(ad, "Status diubah menjadi Diterbitkan");
+  await ad.waitForSelector("[aria-current=step] >> text=Aktif");
+  const hist = await ad.locator("div.rounded-xl:has(h3:text-is('Riwayat status'))").innerText();
+  if (!/Aktif otomatis pada tanggal terbit/.test(hist)) throw new Error("riwayat tanpa catatan aktif otomatis");
+  await shot(ad, "43-izin-aktif");
+});
+await step("Audit: jejak audit izin menampilkan perubahan status dengan nilai lama → baru", async () => {
+  await ad.click("button:has-text('Jejak audit')");
+  await ad.waitForURL(/\/audit\?f_record=/);
+  await ad.waitForSelector("text=Menampilkan jejak audit untuk satu data");
+  const row = ad.locator("tbody tr", { hasText: /DISETUJUI → DITERBITKAN/ });
+  await row.waitFor();
+  await row.click();
+  await ad.waitForSelector("[role=dialog] >> text=Detail aktivitas");
+  const t = await ad.locator("[role=dialog] table").innerText();
+  if (!/Status[\s\S]*DISETUJUI[\s\S]*DITERBITKAN/.test(t)) throw new Error(t);
+  await shot(ad, "44-audit-detail");
+  await ad.keyboard.press("Escape");
+  await ad.click("button:has-text('Semua aktivitas')");
+  await ad.selectOption("select[aria-label='Aksi']", "VERIFY");
+  await ad.waitForSelector("tbody tr >> text=Menolak dokumen: KTP Maria v2.pdf");
+  await ad.fill("input[aria-label='Tanggal dari']", todayWita);
+  await ad.waitForURL(/f_from=/);
+  await ad.waitForSelector("tbody tr >> text=Menolak dokumen: KTP Maria v2.pdf");
+});
+await step("Data Terhapus: Admin Arsip memulihkan dokumen; tanpa tombol pulihkan untuk izin", async () => {
+  await ad.goto(`${APP}/terhapus`);
+  await ad.click("[role=tab]:has-text('Dokumen')");
+  const row = ad.locator("tbody tr", { hasText: "NPWP (contoh)" });
+  await row.waitFor();
+  await row.locator("button[aria-label='Aksi baris']").click();
+  await ad.click("[role=menuitem]:has-text('Pulihkan')");
+  await ad.click("[role=dialog] button:has-text('Pulihkan')");
+  await toast(ad, "Data dipulihkan");
+  await row.waitFor({ state: "detached" });
+  await ad.click("[role=tab]:has-text('Perizinan')");
+  await ad.waitForSelector("text=Tidak ada data terhapus");
+});
+await ad.close(); await adCtx.close();
+
+const { page: pm } = await session("pimpinan@example.com");
+await step("Pimpinan: boleh membaca Audit Log, tanpa menu Data Terhapus & Antrean Verifikasi", async () => {
+  await pm.goto(`${APP}/audit`);
+  await pm.waitForSelector("tbody tr >> text=Mengupload dokumen");
+  if (await pm.locator("nav >> text=Data Terhapus").count()) throw new Error("menu data terhapus");
+  if (await pm.locator("nav >> text=Antrean Verifikasi").count()) throw new Error("menu antrean");
+  await pm.goto(`${APP}/terhapus`);
+  await pm.waitForURL(/tidak-berwenang/);
+});
+await pm.close();
+
 // ───────────────────────── Super Admin: hapus + mobile ─────────────────────────
 ({ page: sa, ctx: saCtx } = await session("superadmin@example.com", { w: 390, h: 844 }));
 await step("Mobile 390px: daftar & detail tanpa scroll horizontal halaman", async () => {
@@ -548,6 +678,17 @@ await step("SA: hapus lunak izin → hilang dari daftar", async () => {
   await sa.waitForURL(`${APP}/perizinan`);
   await toast(sa, "Data perizinan dihapus");
   if ((await sa.locator("tbody").innerText()).includes("503/UJI/E2E/2026")) throw new Error("masih tampil");
+});
+await step("SA: pulihkan izin dari Data Terhapus → kembali di Data Perizinan", async () => {
+  await sa.goto(`${APP}/terhapus`);
+  const row = sa.locator("tbody tr", { hasText: "503/UJI/E2E/2026" });
+  await row.waitFor();
+  await row.locator("button[aria-label='Aksi baris']").click();
+  await sa.click("[role=menuitem]:has-text('Pulihkan')");
+  await sa.click("[role=dialog] button:has-text('Pulihkan')");
+  await toast(sa, "Data dipulihkan");
+  await sa.goto(`${APP}/perizinan?q=503%2FUJI`);
+  await sa.waitForSelector("tbody tr >> text=503/UJI/E2E/2026");
 });
 await sa.close(); await saCtx.close();
 

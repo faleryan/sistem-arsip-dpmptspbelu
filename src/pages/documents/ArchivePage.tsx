@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { Archive, Download, ExternalLink, Eye, FileText, ImageIcon } from "lucide-react";
+import { Archive, Download, ExternalLink, Eye, FileText, History, ImageIcon } from "lucide-react";
 import { toast } from "sonner";
 import { DataTable, FilterSelect, useTableState, type Column } from "@/components/data-table";
 import { PageHeader } from "@/components/shared/PageHeader";
@@ -162,6 +162,7 @@ export default function ArchivePage() {
         rowActions={[
           { label: "Lihat", icon: Eye, onSelect: (r) => setDialog({ kind: "preview", doc: r }) },
           { label: "Unduh", icon: Download, onSelect: download },
+          { label: "Riwayat versi", icon: History, onSelect: (r) => setDialog({ kind: "versions", doc: r }) },
           { label: "Buka izin", icon: ExternalLink, onSelect: (r) => navigate(`/perizinan/${r.license_id}`) },
         ]}
         searchPlaceholder="Cari judul, nomor dokumen, nama file, no. izin, pemohon…"
@@ -209,7 +210,7 @@ export default function ArchivePage() {
           description: viewer ? undefined : "Dokumen diunggah dari halaman detail masing-masing izin.",
         }}
       />
-      <DocumentDialogs dialog={dialog} onClose={() => setDialog(null)} />
+      <DocumentDialogs dialog={dialog} onClose={() => setDialog(null)} onOpen={setDialog} />
     </>
   );
 }

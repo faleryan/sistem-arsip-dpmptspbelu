@@ -10,7 +10,9 @@ import {
   Users,
   UserSquare2,
   BarChart3,
+  ClipboardCheck,
   Database,
+  Trash2,
   type LucideIcon,
 } from "lucide-react";
 import type { AppRole } from "@/types/domain";
@@ -53,6 +55,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { label: "Data Perizinan", to: "/perizinan", icon: ClipboardList, roles: ALL },
       { label: "Pemohon", to: "/pemohon", icon: UserSquare2, roles: INTERNAL },
       { label: "Perusahaan", to: "/perusahaan", icon: Building2, roles: INTERNAL },
+      { label: "Antrean Verifikasi", to: "/verifikasi", icon: ClipboardCheck, roles: ["super_admin", "verifikator"] },
     ],
   },
   {
@@ -79,6 +82,7 @@ export const NAV_GROUPS: NavGroup[] = [
         icon: ShieldCheck,
         roles: ["super_admin", "admin_arsip", "pimpinan"],
       },
+      { label: "Data Terhapus", to: "/terhapus", icon: Trash2, roles: ["super_admin", "admin_arsip"] },
       { label: "Pengaturan", to: "/pengaturan", icon: Settings, roles: ["super_admin"] },
     ],
   },
@@ -96,5 +100,7 @@ export const PAGE_TITLES: Record<string, string> = {
   "/master": "Master Data",
   "/pengguna": "Pengguna & Role",
   "/audit": "Audit Log",
+  "/verifikasi": "Antrean Verifikasi",
+  "/terhapus": "Data Terhapus",
   "/pengaturan": "Pengaturan",
 };

@@ -5,6 +5,7 @@ import { Pencil, Plus, Trash2, UserSquare2 } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
+import { AuditTrailButton } from "@/components/shared/AuditTrailButton";
 import { BackLink, DetailList } from "@/components/shared/DetailList";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { Button } from "@/components/ui/button";
@@ -70,6 +71,7 @@ export default function ApplicantDetailPage() {
         description="Detail pemohon"
         actions={
           <>
+            <AuditTrailButton recordId={a.id} />
             {canDelete ? (
               <Button variant="outline" onClick={() => setDeleting(true)} className="text-red-600">
                 <Trash2 className="h-4 w-4" aria-hidden /> Hapus
@@ -120,7 +122,7 @@ export default function ApplicantDetailPage() {
         danger
         busy={remove.isPending}
         title="Hapus pemohon?"
-        message={`"${a.full_name}" akan dihapus dari daftar. Ini hapus lunak: data tetap tersimpan di database dan tercatat di audit log. Data izin yang sudah ada tidak terhapus.`}
+        message={`"${a.full_name}" akan dihapus dari daftar. Ini hapus lunak: data tetap tersimpan dan dapat dipulihkan dari menu Data Terhapus. Data izin yang sudah ada tidak terhapus.`}
         confirmLabel="Hapus"
         onConfirm={() => remove.mutate()}
         onClose={() => setDeleting(false)}

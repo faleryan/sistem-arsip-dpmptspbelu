@@ -7,6 +7,8 @@ import type { DocumentRow } from "@/types/entities";
 import { DocumentMetaDialog } from "./DocumentMetaDialog";
 import { DocumentPreviewDialog } from "./DocumentPreviewDialog";
 import { UploadDocumentDialog, type UploadMode, type UploadTarget } from "./UploadDocumentDialog";
+import { VerifyDocumentDialog } from "./VerifyDocumentDialog";
+import { VersionHistoryDialog } from "./VersionHistoryDialog";
 
 /** Dialog dokumen yang sedang terbuka (satu pada satu waktu). */
 export type DocDialog =
@@ -14,9 +16,20 @@ export type DocDialog =
   | { kind: "preview"; doc: DocumentRow }
   | { kind: "meta"; doc: DocumentRow }
   | { kind: "delete"; doc: DocumentRow }
+  | { kind: "versions"; doc: DocumentRow }
+  | { kind: "verify"; doc: DocumentRow }
   | null;
 
-export function DocumentDialogs({ dialog, onClose }: { dialog: DocDialog; onClose: () => void }) {
+export function DocumentDialogs({
+  dialog,
+  onClose,
+  onOpen,
+}: {
+  dialog: DocDialog;
+  onClose: () => void;
+  /** Berpindah ke dialog lain (mis. dari pratinjau ke riwayat versi). */
+  onOpen?: (d: DocDialog) => void;
+}) {
   const qc = useQueryClient();
   const remove = useMutation({
     mutationFn: (id: string) => softDeleteDocument(id),
@@ -36,7 +49,17 @@ export function DocumentDialogs({ dialog, onClose }: { dialog: DocDialog; onClos
     case "upload":
       return <UploadDocumentDialog target={dialog.target} mode={dialog.mode} onClose={onClose} />;
     case "preview":
-      return <DocumentPreviewDialog doc={dialog.doc} onClose={onClose} />;
+      return (
+        <DocumentPreviewDialog
+          doc={dialog.doc}
+          onClose={onClose}
+          onHistory={onOpen ? () => onOpen({ kind: "versions", doc: dialog.doc }) : undefined}
+        />
+      );
+    case "versions":
+      return <VersionHistoryDialog doc={dialog.doc} onClose={onClose} />;
+    case "verify":
+      return <VerifyDocumentDialog doc={dialog.doc} onClose={onClose} />;
     case "meta":
       return <DocumentMetaDialog doc={dialog.doc} onClose={onClose} />;
     case "delete":
@@ -46,7 +69,7 @@ export function DocumentDialogs({ dialog, onClose }: { dialog: DocDialog; onClos
           danger
           busy={remove.isPending}
           title="Hapus dokumen?"
-          message={`"${dialog.doc.title}" akan dihapus dari daftar arsip. Ini hapus lunak: file dan seluruh versinya tetap tersimpan dan tercatat di audit log.`}
+          message={`"${dialog.doc.title}" akan dihapus dari daftar arsip. Ini hapus lunak: file dan seluruh versinya tetap tersimpan dan dapat dipulihkan dari menu Data Terhapus. Tercatat di audit log.`}
           confirmLabel="Hapus"
           onConfirm={() => remove.mutate(dialog.doc.id)}
           onClose={onClose}

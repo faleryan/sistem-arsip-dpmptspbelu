@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Download, Eye, FileText, FolderOpen, ImageIcon, Loader2, MoreHorizontal, Pencil, Trash2, Upload } from "lucide-react";
+import { ClipboardCheck, Download, Eye, FileText, FolderOpen, History, ImageIcon, Loader2, MoreHorizontal, Pencil, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { StatusBadge } from "@/components/shared/StatusBadge";
@@ -12,8 +12,7 @@ import { MIME_LABEL, formatBytes } from "@/lib/files";
 import { downloadObject } from "@/services/storage";
 import { formatDate } from "@/utils/format";
 import { DOC_STATUS_LABEL, type DocumentRow } from "@/types/entities";
-
-type Perms = { canUpload: boolean; canEditMeta: boolean; canDelete: boolean };
+import type { DocPerms } from "./permissions";
 
 /** Daftar dokumen arsip sebuah izin (versi aktif masing-masing). */
 export function LicenseDocumentsCard({
@@ -27,17 +26,21 @@ export function LicenseDocumentsCard({
   onNewVersion,
   onEditMeta,
   onDelete,
+  onVersions,
+  onVerify,
 }: {
   docs: DocumentRow[] | undefined;
   loading: boolean;
   error: unknown;
   onRetry: () => void;
-  perms: Perms;
+  perms: DocPerms;
   onUpload: () => void;
   onPreview: (d: DocumentRow) => void;
   onNewVersion: (d: DocumentRow) => void;
   onEditMeta: (d: DocumentRow) => void;
   onDelete: (d: DocumentRow) => void;
+  onVersions: (d: DocumentRow) => void;
+  onVerify: (d: DocumentRow) => void;
 }) {
   const [downloading, setDownloading] = useState<string | null>(null);
 
@@ -116,6 +119,12 @@ export function LicenseDocumentsCard({
                   <span className="hidden sm:block">
                     <StatusBadge status={d.status} label={DOC_STATUS_LABEL[d.status]} />
                   </span>
+                  {perms.canVerify(d) ? (
+                    <Button size="sm" className="h-8 shrink-0" onClick={() => onVerify(d)} aria-label={`Periksa ${d.title}`}>
+                      <ClipboardCheck className="h-4 w-4" aria-hidden />
+                      <span className="hidden sm:inline">Periksa</span>
+                    </Button>
+                  ) : null}
                   <Button
                     variant="ghost"
                     size="icon"
@@ -139,6 +148,9 @@ export function LicenseDocumentsCard({
                       <>
                         <MenuItem icon={<Eye className="h-4 w-4" aria-hidden />} onSelect={() => { close(); onPreview(d); }}>
                           Lihat
+                        </MenuItem>
+                        <MenuItem icon={<History className="h-4 w-4" aria-hidden />} onSelect={() => { close(); onVersions(d); }}>
+                          Riwayat versi
                         </MenuItem>
                         {perms.canUpload ? (
                           <MenuItem icon={<Upload className="h-4 w-4" aria-hidden />} onSelect={() => { close(); onNewVersion(d); }}>

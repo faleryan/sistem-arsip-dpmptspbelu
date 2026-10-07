@@ -1,29 +1,31 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, Download, ExternalLink, Loader2 } from "lucide-react";
+import { Download, ExternalLink, History, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { Modal } from "@/components/shared/Modal";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { errorMessage } from "@/lib/errors";
 import { MIME_LABEL, formatBytes } from "@/lib/files";
-import { downloadObject, signedUrl } from "@/services/storage";
+import { downloadObject } from "@/services/storage";
 import { formatDateTime } from "@/utils/format";
 import { DOC_STATUS_LABEL, type DocumentRow } from "@/types/entities";
+import { FilePreview, useSignedUrl } from "./FilePreview";
 
 /**
- * Pratinjau versi aktif dokumen. File dibuka lewat signed URL 5 menit; PDF di iframe
- * (penampil PDF bawaan browser), gambar sebagai <img>. Selalu ada tombol unduh/tab baru.
+ * Pratinjau versi aktif dokumen. File dibuka lewat signed URL 5 menit; selalu ada tombol
+ * unduh dan tab baru sebagai cadangan bila penampil di dalam halaman tidak tersedia.
  */
-export function DocumentPreviewDialog({ doc, onClose }: { doc: DocumentRow; onClose: () => void }) {
+export function DocumentPreviewDialog({
+  doc,
+  onClose,
+  onHistory,
+}: {
+  doc: DocumentRow;
+  onClose: () => void;
+  onHistory?: () => void;
+}) {
   const [downloading, setDownloading] = useState(false);
-  const url = useQuery({
-    queryKey: ["documents", "signed", doc.storage_path],
-    queryFn: () => signedUrl(doc.storage_path!, { expiresIn: 300 }),
-    enabled: !!doc.storage_path,
-    staleTime: 4 * 60 * 1000, // sedikit di bawah umur URL
-    gcTime: 4 * 60 * 1000,
-  });
+  const url = useSignedUrl(doc.storage_path);
 
   async function download() {
     if (!doc.storage_path || !doc.file_name) return;
@@ -37,8 +39,6 @@ export function DocumentPreviewDialog({ doc, onClose }: { doc: DocumentRow; onCl
     }
   }
 
-  const isPdf = doc.mime_type === "application/pdf";
-
   return (
     <Modal open size="full" onClose={onClose} title={doc.title}>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b px-5 py-3 text-xs text-muted-foreground">
@@ -49,7 +49,12 @@ export function DocumentPreviewDialog({ doc, onClose }: { doc: DocumentRow; onCl
           v{doc.version_no} · {MIME_LABEL[doc.mime_type ?? ""] ?? "-"} · {formatBytes(doc.size_bytes)}
         </span>
         <span>Diunggah {formatDateTime(doc.uploaded_at)}</span>
-        <span className="ml-auto flex gap-2">
+        <span className="ml-auto flex flex-wrap gap-2">
+          {onHistory && (doc.version_no ?? 0) > 0 ? (
+            <Button variant="outline" size="sm" onClick={onHistory}>
+              <History className="h-4 w-4" aria-hidden /> Riwayat versi
+            </Button>
+          ) : null}
           <Button variant="outline" size="sm" onClick={download} disabled={downloading || !doc.storage_path}>
             {downloading ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Download className="h-4 w-4" aria-hidden />}
             Unduh
@@ -63,34 +68,9 @@ export function DocumentPreviewDialog({ doc, onClose }: { doc: DocumentRow; onCl
           ) : null}
         </span>
       </div>
-
       <div className="relative min-h-0 flex-1 bg-slate-100">
-        {!doc.storage_path ? (
-          <Centered>
-            <AlertTriangle className="h-8 w-8 text-amber-500" aria-hidden />
-            <p className="text-sm">Dokumen ini belum memiliki file.</p>
-          </Centered>
-        ) : url.isLoading ? (
-          <Centered>
-            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" aria-label="Memuat pratinjau" />
-          </Centered>
-        ) : url.isError || !url.data ? (
-          <Centered>
-            <AlertTriangle className="h-8 w-8 text-amber-500" aria-hidden />
-            <p className="max-w-sm text-center text-sm">{errorMessage(url.error)}</p>
-          </Centered>
-        ) : isPdf ? (
-          <iframe src={url.data} title={`Pratinjau ${doc.file_name}`} className="h-full w-full border-0 bg-white" />
-        ) : (
-          <div className="flex h-full items-center justify-center overflow-auto p-4">
-            <img src={url.data} alt={doc.title} className="max-h-full max-w-full rounded shadow" />
-          </div>
-        )}
+        <FilePreview path={doc.storage_path} mime={doc.mime_type} title={doc.title} />
       </div>
     </Modal>
   );
-}
-
-function Centered({ children }: { children: React.ReactNode }) {
-  return <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-muted-foreground">{children}</div>;
 }

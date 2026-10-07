@@ -610,6 +610,58 @@ await t("dokumen terhapus (soft delete) hilang dari v_document_search dan tidak 
                       values ($1, 'ktp-v3.pdf', $2, 'application/pdf', 1000)`, [docNew, p], /tidak ditemukan|row-level security/);
 });
 
+// ── 9c. Pemulihan data terhapus (Fase 5) ────────────────────────────────────
+group("Data terhapus: pemulihan per role");
+await t("Super Admin memulihkan izin, pemohon, perusahaan; tercatat RESTORE di audit", async () => {
+  const a = await one(null, `select id from public.applicants where nik = '5301000000000003'`);
+  const b = await one(null, `select id from public.businesses limit 1`);
+  const L = await one(null, `select id from public.licenses where application_number = 'PMH-2026-90004'`);
+  for (const [tb, id] of [["applicants", a.id], ["businesses", b.id], ["licenses", L.id]]) {
+    eq(await affected(U.sa, `update public.${tb} set deleted_at = now() where id = $1`, [id]), 1, tb);
+    // Terhapus tetap terlihat bagi Super Admin & Admin Arsip (untuk halaman Data Terhapus)…
+    eq((await q(U.ad, `select 1 from public.${tb} where id = $1 and deleted_at is not null`, [id])).length, 1, `${tb} admin`);
+    // …tetapi tidak bagi role lain.
+    eq((await q(U.pm, `select 1 from public.${tb} where id = $1`, [id])).length, 0, `${tb} pimpinan`);
+    eq(await affected(U.sa, `update public.${tb} set deleted_at = null where id = $1`, [id]), 1, `${tb} restore`);
+    const log = await one(null, `select action, description from public.audit_logs where record_id = $1 order by id desc limit 1`, [id]);
+    eq(log.action, "RESTORE"); ok(/^Memulihkan/.test(log.description), log.description);
+  }
+});
+await t("Admin Arsip tidak dapat memulihkan izin/pemohon, tetapi dapat memulihkan dokumen", async () => {
+  const L = await one(null, `select id from public.licenses where application_number = 'PMH-2026-90004'`);
+  await run(U.sa, `update public.licenses set deleted_at = now() where id = $1`, [L.id]);
+  // RLS: Admin Arsip tidak punya hak update pada izin terhapus → 0 baris (tidak berubah).
+  eq(await affected(U.ad, `update public.licenses set deleted_at = null where id = $1`, [L.id]), 0);
+  await run(U.sa, `update public.licenses set deleted_at = null where id = $1`, [L.id]);
+
+  const a = await one(null, `select id from public.applicants where nik = '5301000000000003'`);
+  await run(U.sa, `update public.applicants set deleted_at = now() where id = $1`, [a.id]);
+  await denied(U.ad, `update public.applicants set deleted_at = null where id = $1`, [a.id], /tidak berwenang/);
+  await run(U.sa, `update public.applicants set deleted_at = null where id = $1`, [a.id]);
+
+  const d = await one(null, `select d.id from public.documents d join public.licenses l on l.id = d.license_id
+                              where l.application_number = 'PMH-2026-90001' and d.deleted_at is null limit 1`);
+  eq(await affected(U.ad, `update public.documents set deleted_at = now() where id = $1`, [d.id]), 1);
+  eq(await affected(U.ad, `update public.documents set deleted_at = null where id = $1`, [d.id]), 1);
+  // Petugas bukan pengelola izin ini → RLS menyaring baris (0 baris berubah).
+  eq(await affected(U.pt, `update public.documents set deleted_at = now() where id = $1`, [d.id]), 0);
+});
+await t("dokumen pada izin yang terhapus tidak dapat dipulihkan sebelum izinnya dipulihkan", async () => {
+  const L = await one(null, `select id from public.licenses where application_number = 'PMH-2026-90001'`);
+  const d = await one(null, `select id from public.documents where license_id = $1 and deleted_at is null limit 1`, [L.id]);
+  await run(U.ad, `update public.documents set deleted_at = now() where id = $1`, [d.id]);
+  await run(U.sa, `update public.licenses set deleted_at = now() where id = $1`, [L.id]);
+  eq(await affected(U.ad, `update public.documents set deleted_at = null where id = $1`, [d.id]), 0);
+  await run(U.sa, `update public.licenses set deleted_at = null where id = $1`, [L.id]);
+  eq(await affected(U.ad, `update public.documents set deleted_at = null where id = $1`, [d.id]), 1);
+});
+await t("Audit Log: hanya Super Admin, Admin Arsip, Pimpinan yang dapat membaca; tidak ada yang dapat mengubah", async () => {
+  for (const who of [U.sa, U.ad, U.pm]) ok((await q(who, `select id from public.audit_logs limit 1`)).length === 1);
+  for (const who of [U.pt, U.vf, U.vw]) eq((await q(who, `select id from public.audit_logs limit 1`)).length, 0);
+  await denied(U.sa, `update public.audit_logs set description = 'x'`, [], /permission denied/);
+  await denied(U.sa, `delete from public.audit_logs`, [], /permission denied/);
+});
+
 // ── 10. Pemeliharaan harian ─────────────────────────────────────────────────
 group("Pemeliharaan harian (cron)");
 await t("DITERBITKAN→AKTIF, AKTIF→BERAKHIR, peringatan kedaluwarsa tanpa duplikat", async () => {

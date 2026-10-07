@@ -24,6 +24,7 @@ export function CompletenessCard({
   docsLoading,
   docsError,
   onUpload,
+  showReady,
 }: {
   licenseTypeId: string;
   docs: DocumentRow[] | undefined;
@@ -31,6 +32,8 @@ export function CompletenessCard({
   docsError: unknown;
   /** Bila diisi, item yang belum ada/ditolak menampilkan tombol unggah. */
   onUpload?: (documentTypeId: string, existing?: DocumentRow) => void;
+  /** Tampilkan petunjuk "siap disetujui" bila semua dokumen wajib lengkap (untuk Verifikator). */
+  showReady?: boolean;
 }) {
   const docTypes = useDocumentTypes();
   const required = useQuery({ queryKey: [...REF_KEY, "required_docs", licenseTypeId], queryFn: () => listRequiredDocs(licenseTypeId) });
@@ -86,6 +89,11 @@ export function CompletenessCard({
               >
                 <div className="h-full rounded-full bg-emerald-500 transition-all" style={{ width: `${pct}%` }} />
               </div>
+            ) : null}
+            {showReady && items.length > 0 && done === items.length ? (
+              <p role="status" className="mb-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+                Semua dokumen wajib sudah lengkap. Permohonan dapat <strong>disetujui</strong>.
+              </p>
             ) : null}
             <ul className="space-y-2">
               {items.map((i) => {

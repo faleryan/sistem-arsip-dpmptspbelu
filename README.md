@@ -4,7 +4,7 @@ Sistem Informasi Pengarsipan dan Manajemen Dokumen Perizinan — DPMPTSP Kabupat
 
 React + TypeScript + Vite + Tailwind · Supabase (Auth, PostgreSQL + RLS, Storage) · hosting Vercel.
 
-Desain lengkap: [`docs/00-DESAIN.md`](docs/00-DESAIN.md). Status: **Fase 1–4 selesai** (lihat roadmap di dokumen desain).
+Desain lengkap: [`docs/00-DESAIN.md`](docs/00-DESAIN.md). Status: **Fase 1–5 selesai** (lihat roadmap di dokumen desain).
 
 Yang sudah bisa dipakai: login dan peran, dashboard, Pengguna & Role, **Data Perizinan** (daftar, tambah, detail,
 ubah, ubah status sesuai workflow, riwayat status, kelengkapan dokumen), **Pemohon**, **Perusahaan**, dan
@@ -15,6 +15,12 @@ Semua tabel punya pencarian, filter, urut, paginasi server, pilihan kolom, dan e
 file, checksum SHA-256), metadata dokumen (jenis, judul, nomor, tanggal, klasifikasi), unggah versi baru, pratinjau
 dan unduh lewat signed URL berumur pendek, hapus lunak oleh Admin, serta halaman **Arsip Digital** berisi seluruh
 dokumen lintas izin.
+
+**DMS & workflow** (Fase 5): riwayat versi lengkap (unduh/pratinjau tiap versi, alasan penolakan per versi),
+**Antrean Verifikasi** untuk Verifikator (pratinjau berdampingan dengan Terima/Tolak beralasan), alur kerja visual
+di detail izin (Draft → Diajukan → Verifikasi → Disetujui → Diterbitkan → Aktif), **Audit Log** dengan filter dan
+rincian perubahan nilai lama → baru (plus tombol *Jejak audit* di setiap detail), dan **Data Terhapus** untuk
+memulihkan data yang dihapus lunak.
 
 ## Menjalankan lokal
 
@@ -29,10 +35,10 @@ npm run build             # typecheck + build produksi ke dist/
 
 1. Buat proyek di supabase.com. Ambil **Project URL** dan **anon public key** (Settings → API).
 2. SQL Editor → jalankan file di `supabase/migrations/` **berurutan**, satu per satu:
-   `0001` → `0002` → `0003` → `0004` → `0005` → `0006` → `0007` → `0008`. Semuanya aman dijalankan ulang.
+   `0001` → `0002` → `0003` → `0004` → `0005` → `0006` → `0007` → `0008` → `0009`. Semuanya aman dijalankan ulang.
    **`0007` harus dijalankan sendiri** (satu kali *Run*), baru kemudian `0008` — PostgreSQL tidak mengizinkan
    status enum baru dipakai dalam eksekusi yang sama dengan penambahannya.
-   Sudah menjalankan 0001–0006 di fase sebelumnya? Cukup jalankan `0007` lalu `0008`.
+   Sudah menjalankan migration fase sebelumnya? Cukup jalankan yang belum (Fase 4: `0007` lalu `0008`; Fase 5: `0009`).
    Bila muncul catatan tentang `pg_cron`, aktifkan di Database → Extensions lalu jalankan ulang `0003`
    (penjadwalan harian: izin berakhir otomatis + notifikasi).
 3. Buat Super Admin pertama (langkah manual di bagian bawah `0001`).
@@ -51,7 +57,7 @@ npm run build             # typecheck + build produksi ke dist/
 
 ## Menguji database (RLS, workflow, storage)
 
-Suite ini menjalankan semua migration di PostgreSQL lokal (PGlite) dan menguji 69 skenario per role:
+Suite ini menjalankan semua migration di PostgreSQL lokal (PGlite) dan menguji 73 skenario per role:
 
 ```bash
 cd supabase/tests
@@ -64,7 +70,8 @@ singkat di proyek Anda (login tiap role uji, coba unggah dan verifikasi) setelah
 
 Uji antarmuka end-to-end (opsional, untuk pengembang): `tests/e2e/README.md` — menjalankan aplikasi terhadap
 PostgreSQL + PostgREST lokal (dengan tiruan Storage API yang memakai policy RLS asli) dan mengklik alur nyata
-tiap role (32 skenario, termasuk unggah, pratinjau, unduh, dan versi dokumen).
+tiap role (41 skenario: master data, CRUD, unggah/pratinjau/unduh/versi dokumen, verifikasi, alur penuh
+Draft → Aktif, Audit Log, dan pemulihan data).
 
 ## Deploy ke Vercel
 

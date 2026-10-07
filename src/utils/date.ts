@@ -18,3 +18,16 @@ export function addMonths(isoDate: string, months: number): string | null {
   const day = Math.min(d, last);
   return `${ty}-${String(tm + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
+
+/** date + n hari, format YYYY-MM-DD. */
+export function addDays(isoDate: string, days: number): string | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoDate);
+  if (!m) return null;
+  const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]) + days));
+  return d.toISOString().slice(0, 10);
+}
+
+/** Awal hari (00:00 WITA) sebagai timestamp ISO untuk filter kolom timestamptz. */
+export function witaStartOfDay(isoDate: string): string {
+  return `${isoDate}T00:00:00+08:00`;
+}

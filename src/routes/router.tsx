@@ -15,6 +15,9 @@ import BusinessesPage from "@/pages/businesses/BusinessesPage";
 import BusinessDetailPage from "@/pages/businesses/BusinessDetailPage";
 import MasterDataPage from "@/pages/master/MasterDataPage";
 import ArchivePage from "@/pages/documents/ArchivePage";
+import VerificationQueuePage from "@/pages/verification/VerificationQueuePage";
+import AuditLogPage from "@/pages/audit/AuditLogPage";
+import TrashPage from "@/pages/trash/TrashPage";
 import ComingSoonPage from "@/pages/shared/ComingSoonPage";
 import NotFoundPage from "@/pages/shared/NotFoundPage";
 
@@ -75,7 +78,15 @@ export const router = createBrowserRouter([
           },
           {
             element: <RoleGuard roles={["super_admin", "admin_arsip", "pimpinan"]} />,
-            children: [{ path: "audit", element: <ComingSoonPage title="Audit Log" phase={5} /> }],
+            children: [{ path: "audit", element: <AuditLogPage /> }],
+          },
+          {
+            element: <RoleGuard roles={["super_admin", "verifikator"]} />,
+            children: [{ path: "verifikasi", element: <VerificationQueuePage /> }],
+          },
+          {
+            element: <RoleGuard roles={["super_admin", "admin_arsip"]} />,
+            children: [{ path: "terhapus", element: <TrashPage /> }],
           },
           { path: "tidak-berwenang", element: <NotFoundPage forbidden /> },
           { path: "*", element: <NotFoundPage /> },

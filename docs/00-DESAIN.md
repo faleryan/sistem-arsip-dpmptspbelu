@@ -361,3 +361,24 @@ policy RLS asli.
 Perbaikan lain yang ditemukan uji di fase ini: menu tarik-turun tidak lagi tertutup sendiri saat halaman bergeser
 sedikit (sekarang mengikuti posisi tombol), dan tata letak detail izin di ponsel tidak lagi melebar oleh nama file
 panjang.
+
+---
+
+## 13. Keputusan saat Fase 5 (DMS: versi, verifikasi, workflow, audit, pemulihan)
+
+Migration baru hanya `0009_audit_indexes.sql` (indeks; tidak mengubah aturan akses). Aturan verifikasi, versi, dan
+audit sudah ada sejak Fase 2 dan kini punya antarmuka. Suite database 73/73 (4 skenario baru: pemulihan per role dan
+hak baca Audit Log). Uji antarmuka 41/41, termasuk alur penuh: dokumen ditolak → unggah ulang → diterima →
+disetujui → terbit → aktif otomatis.
+
+| # | Keputusan | Alasan |
+|---|-----------|--------|
+| 1 | Verifikasi hanya lewat `verify_document()`. Dialog verifikasi menampilkan pratinjau berdampingan dengan pilihan **Terima/Tolak**; alasan wajib saat menolak dan dikirim ke pengunggah sebagai notifikasi. Catatan penolakan versi sebelumnya ikut ditampilkan. | Verifikator tidak perlu berpindah layar; konteks perbaikan terlihat. |
+| 2 | Tombol **Periksa** hanya muncul untuk Verifikator/Super Admin, saat izin Diajukan/Verifikasi, pada dokumen berstatus Menunggu verifikasi (Super Admin boleh memeriksa ulang). | Cermin aturan `verify_document()`; database tetap penegak akhir. |
+| 3 | **Antrean Verifikasi** (`/verifikasi`): dokumen menunggu dari izin Diajukan/Verifikasi, yang paling lama menunggu di atas; unggahan ulang ditandai "(ulang)". | Verifikator bekerja dari satu daftar, bukan membuka izin satu per satu. |
+| 4 | **Riwayat versi** menampilkan semua versi (terbaru di atas), pengunggah, waktu, dan hasil verifikasi tiap versi; setiap versi dapat dipratinjau dan diunduh. Versi tidak dapat dihapus atau diubah. | Jejak arsip lengkap sesuai prinsip DMS. |
+| 5 | Alur kerja visual (stepper) di detail izin memakai riwayat status untuk menandai tahap yang benar-benar dilalui; tahap yang dilompati (arsip izin lama) diberi garis putus-putus. Ditolak/Dicabut/Dibatalkan tampil sebagai penanda akhir merah/abu. | Posisi permohonan terlihat sekilas oleh semua role. |
+| 6 | Kartu kelengkapan menampilkan "Permohonan dapat disetujui" saat semua dokumen wajib terverifikasi dan pengguna berhak menyetujui. | Mengurangi pertanyaan "kenapa belum bisa disetujui". |
+| 7 | **Audit Log** (`/audit`, Super Admin/Admin Arsip/Pimpinan): filter aksi, modul, pengguna, rentang tanggal (WITA), pencarian keterangan; detail menampilkan perubahan kolom **sebelum → sesudah**, IP, perangkat, dan tombol *Buka data*. Ekspor CSV maks. 20.000 baris. Tombol **Jejak audit** di detail izin/pemohon/perusahaan membuka log yang disaring untuk data itu. | Audit dapat ditelusuri dari dua arah: dari log ke data, dan dari data ke log. |
+| 8 | **Data Terhapus** (`/terhapus`, Super Admin & Admin Arsip): tab Perizinan, Pemohon, Perusahaan, Dokumen. Pemulihan izin/pemohon/perusahaan hanya Super Admin; dokumen juga Admin Arsip, dan hanya bila izinnya tidak sedang terhapus. | Sesuai `guard_soft_delete` dan RLS yang sekarang diuji eksplisit. |
+| 9 | Notifikasi (badge, halaman, tandai dibaca) dikerjakan di Fase 6. Data notifikasinya sudah dibuat database sejak Fase 2 (mis. "Dokumen ditolak", "Permohonan menunggu verifikasi"). | Sesuai roadmap. |

@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ClipboardList, Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
+import { AuditTrailButton } from "@/components/shared/AuditTrailButton";
 import { BackLink, DetailList } from "@/components/shared/DetailList";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { StatusBadge } from "@/components/shared/StatusBadge";
@@ -20,6 +21,7 @@ import { ACTION_LABEL, DANGER_TARGETS } from "./status";
 import { StatusChangeDialog } from "./StatusChangeDialog";
 import { StatusHistoryCard } from "./StatusHistoryCard";
 import { CompletenessCard } from "./CompletenessCard";
+import { WorkflowStepper } from "./WorkflowStepper";
 import { listLicenseDocuments } from "@/services/documents";
 import { DocumentDialogs, type DocDialog } from "@/pages/documents/DocumentDialogs";
 import { LicenseDocumentsCard } from "@/pages/documents/LicenseDocumentsCard";
@@ -108,7 +110,7 @@ export default function LicenseDetailPage() {
     <>
       <BackLink to="/perizinan">Kembali ke data perizinan</BackLink>
 
-      <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="break-all text-xl font-semibold text-navy-900">{title}</h2>
@@ -120,6 +122,7 @@ export default function LicenseDetailPage() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <AuditTrailButton recordId={l.id} />
           {perms.canDelete ? (
             <Button variant="outline" onClick={() => setDeleting(true)} className="text-red-600">
               <Trash2 className="h-4 w-4" aria-hidden /> Hapus
@@ -141,6 +144,10 @@ export default function LicenseDetailPage() {
             </Button>
           ))}
         </div>
+      </div>
+
+      <div className="mb-6">
+        <WorkflowStepper licenseId={l.id} status={l.status} withHistory={internal} />
       </div>
 
       {/* grid-cols-1 = minmax(0,1fr): teks yang dipotong (truncate) tidak melebarkan kolom di ponsel */}
@@ -225,6 +232,8 @@ export default function LicenseDetailPage() {
             onNewVersion={(d) => setDocDialog({ kind: "upload", target: uploadTarget, mode: { kind: "version", document: d } })}
             onEditMeta={(d) => setDocDialog({ kind: "meta", doc: d })}
             onDelete={(d) => setDocDialog({ kind: "delete", doc: d })}
+            onVersions={(d) => setDocDialog({ kind: "versions", doc: d })}
+            onVerify={(d) => setDocDialog({ kind: "verify", doc: d })}
           />
         </div>
 
@@ -235,6 +244,7 @@ export default function LicenseDetailPage() {
               docs={docs.data}
               docsLoading={docs.isLoading}
               docsError={docs.error}
+              showReady={actions.some((t) => t.to_status === "DISETUJUI")}
               onUpload={
                 docPerms.canUpload
                   ? (typeId, existing) =>
@@ -251,7 +261,7 @@ export default function LicenseDetailPage() {
         </div>
       </div>
 
-      <DocumentDialogs dialog={docDialog} onClose={() => setDocDialog(null)} />
+      <DocumentDialogs dialog={docDialog} onClose={() => setDocDialog(null)} onOpen={setDocDialog} />
       {action ? (
         <StatusChangeDialog
           licenseId={l.id}
@@ -266,7 +276,7 @@ export default function LicenseDetailPage() {
         danger
         busy={remove.isPending}
         title="Hapus data perizinan?"
-        message={`${title} akan dihapus dari daftar. Ini hapus lunak: data, dokumen, dan riwayatnya tetap tersimpan dan tercatat di audit log.`}
+        message={`${title} akan dihapus dari daftar. Ini hapus lunak: data, dokumen, dan riwayatnya tetap tersimpan dan dapat dipulihkan dari menu Data Terhapus.`}
         confirmLabel="Hapus"
         onConfirm={() => remove.mutate()}
         onClose={() => setDeleting(false)}
