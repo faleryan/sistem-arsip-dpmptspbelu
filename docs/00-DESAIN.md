@@ -277,7 +277,7 @@ Setiap fase diakhiri `npm run build` + `tsc --noEmit` bersih, dan saya sampaikan
 | Fase | Isi | Hasil yang bisa dicoba |
 |------|-----|------------------------|
 | 1 | Scaffold Vite + React + TS + Tailwind + shadcn/ui, klien Supabase (env), Auth (login, logout, lupa password, remember session), guard rute per role, layout sidebar+topbar (drawer di tablet), dashboard kerangka, `vercel.json`, `.env.example` | Login berjalan ke proyek Supabase Anda; layout tampil; **sudah bisa di-deploy ke Vercel** |
-| 2 | Migration SQL lengkap (tabel, FK, indeks, enum, trigger updated_at & audit, RLS, storage policy, fungsi workflow, `verify_license`), seed role/master/data dummy, Edge Function `admin-create-user` | Jalankan di Supabase SQL Editor; 5 user uji |
+| 2 | Migration SQL lengkap (tabel, FK, indeks, enum, trigger updated_at & audit, RLS, storage policy, fungsi workflow, `verify_license`), seed role/master/data dummy, Edge Function `admin-create-user` | Jalankan di Supabase SQL Editor; 6 user uji (satu per role) |
 | 3 | CRUD Perizinan, Pemohon, Perusahaan, Master Jenis Izin; DataTable (search, filter, sort, pagination, kolom, export) | Data perizinan nyata dari DB |
 | 4 | Arsip Digital: upload (validasi MIME/ukuran/ekstensi), bucket privat, metadata, preview & download signed URL | Upload dan buka file |
 | 5 | Versioning, verifikasi, workflow status, audit trail UI | Siklus lengkap draft → terbit |
@@ -314,3 +314,22 @@ Semua perubahan di bawah ini sudah tertuang di migration dan diuji (`supabase/te
 | 10 | View baru: `v_license_search` (daftar+pencarian, menyamarkan NIK/NPWP untuk Viewer), `v_staff` (nama petugas tanpa data sensitif), `v_license_completeness` (kelengkapan dokumen). | Satu sumber untuk tabel Data Perizinan dan Pencarian di Fase 3 dan 6. |
 | 11 | Kode verifikasi QR tetap 12 karakter acak (A–Z/0–9). Pembuatannya dipaksa server; klien tidak bisa menentukan atau mengubahnya. | Sesuai desain; pembatasan laju permintaan publik bergantung pada rate limit Supabase (lihat Fase 7). |
 | 12 | Pembuatan akun: hanya Edge Function `admin-create-user` (Super Admin), plus UI di menu **Pengguna & Role**. Profil terakhir yang berstatus Super Admin aktif tidak dapat dinonaktifkan/diturunkan. | Mencegah sistem terkunci tanpa administrator. |
+
+---
+
+## 11. Keputusan saat Fase 3 (CRUD Perizinan, Pemohon, Perusahaan, Master Data)
+
+Tidak ada perubahan SQL di fase ini selain akun uji Viewer di `seed_test_users.sql`. Semua alur diuji end-to-end
+terhadap PostgreSQL + PostgREST lokal (`tests/e2e`, 21 skenario) dan suite database tetap 59/59 lulus.
+
+| # | Keputusan | Alasan |
+|---|-----------|--------|
+| 1 | Viewer **tidak** mendapat menu Pemohon dan Perusahaan (matriks bagian 5 menulis R). Nama pemohon/perusahaan tetap tampil di Data Perizinan melalui `v_license_search`, tanpa NIK/NPWP. | RLS (bagian 6) menolak Viewer membaca tabel `applicants`/`businesses` secara langsung; ini pilihan paling aman dan konsisten dengan penyamaran NIK. |
+| 2 | Daftar izin, pemohon, perusahaan, dan master memakai paginasi, pencarian, dan urut **di server** (PostgREST `range`, `ilike`, `order`). Status tabel (kata kunci, filter, urut, halaman) disimpan di URL. | Tetap cepat untuk puluhan ribu arsip; tautan bisa dibagikan dan tombol Back kembali ke posisi semula. |
+| 3 | Ekspor dari tabel = **CSV** (pemisah titik koma, BOM UTF-8, maks. 10.000 baris, mengikuti filter dan kolom yang tampil). Sel diawali `= + - @` diberi tanda kutip tunggal. Excel (.xlsx) dan PDF ada di menu Laporan (Fase 6). | Langsung terbaca Excel berbahasa Indonesia; mencegah formula injection. |
+| 4 | NIK dan NIB **ditolak bila sudah terdaftar** (dicek di form, dengan tautan ke data lama). Belum dijadikan unique constraint di database. | Data arsip lama mungkin berisi duplikat; constraint dapat ditambahkan di Fase 7 setelah data dibersihkan. |
+| 5 | Master data dihapus permanen (tabel master tidak punya `deleted_at`). Rujukan `ON DELETE RESTRICT` ditolak database; rujukan `ON DELETE SET NULL` (kecamatan, desa, unit, klasifikasi) dicek dulu di aplikasi agar data arsip tidak kehilangan rujukan diam-diam. Untuk jenis izin/dokumen/klasifikasi, disarankan **menonaktifkan**. | Mencegah hilangnya informasi wilayah pada izin lama. |
+| 6 | Form izin: Petugas hanya melihat bagian *Data permohonan*; bagian *Data penerbitan* (nomor izin, tanggal terbit/berakhir, status awal) hanya untuk Admin Arsip dan Super Admin. Jenis izin dikunci setelah permohonan lewat tahap Diajukan. | Cermin dari trigger `guard_license_write`; database tetap penegak akhir. |
+| 7 | Digitalisasi arsip izin lama: Admin memilih status awal **Aktif** atau **Berakhir**; nomor izin dan tanggal terbit wajib; tanggal berakhir dihitung dari masa berlaku jenis izin bila dikosongkan (aturan akhir bulan sama dengan PostgreSQL). | Menindaklanjuti perubahan #7 bagian 10. |
+| 8 | Tombol ubah status hanya menampilkan transisi yang sah untuk role (dari `license_status_transitions`), dengan catatan wajib sesuai kolom `requires_note`. Prasyarat (dokumen terunggah/terverifikasi, nomor izin) tetap diperiksa `change_license_status()` dan pesannya ditampilkan apa adanya. | Satu sumber aturan di database. |
+| 9 | Hapus pemohon/perusahaan/izin = hapus lunak oleh Super Admin. Halaman pemulihan (*restore*) dibuat bersama Audit Log di Fase 5; sementara itu data tetap ada di database. | Arsip tidak boleh hilang. |

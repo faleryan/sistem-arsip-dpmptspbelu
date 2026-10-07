@@ -4,7 +4,12 @@ Sistem Informasi Pengarsipan dan Manajemen Dokumen Perizinan — DPMPTSP Kabupat
 
 React + TypeScript + Vite + Tailwind · Supabase (Auth, PostgreSQL + RLS, Storage) · hosting Vercel.
 
-Desain lengkap: [`docs/00-DESAIN.md`](docs/00-DESAIN.md). Status: **Fase 1 dan 2 selesai** (lihat roadmap di dokumen desain).
+Desain lengkap: [`docs/00-DESAIN.md`](docs/00-DESAIN.md). Status: **Fase 1–3 selesai** (lihat roadmap di dokumen desain).
+
+Yang sudah bisa dipakai: login dan peran, dashboard, Pengguna & Role, **Data Perizinan** (daftar, tambah, detail,
+ubah, ubah status sesuai workflow, riwayat status, kelengkapan dokumen), **Pemohon**, **Perusahaan**, dan
+**Master Data** (jenis izin + dokumen wajib, jenis dokumen, kecamatan, desa/kelurahan, klasifikasi arsip, unit).
+Semua tabel punya pencarian, filter, urut, paginasi server, pilihan kolom, dan ekspor CSV.
 
 ## Menjalankan lokal
 
@@ -30,7 +35,7 @@ npm run build             # typecheck + build produksi ke dist/
    Atau dengan CLI: `supabase functions deploy admin-create-user`.
    Kunci service role disuntik otomatis oleh Supabase; **jangan** menaruhnya di frontend atau Vercel.
 6. (Opsional, hanya proyek uji) `supabase/seed.sql` untuk data contoh, dan `supabase/seed_test_users.sql`
-   untuk 5 akun uji (kata sandi tertulis di file itu — hapus sebelum produksi).
+   untuk 6 akun uji, satu per role (kata sandi tertulis di file itu — hapus sebelum produksi).
 
 ## Menguji database (RLS, workflow, storage)
 
@@ -44,6 +49,9 @@ npm test
 
 Catatan: ini meniru role/skema Supabase (`mock_supabase.sql`), bukan Supabase sungguhan. Jalankan juga uji manual
 singkat di proyek Anda (login tiap role uji, coba unggah dan verifikasi) setelah Fase 4.
+
+Uji antarmuka end-to-end (opsional, untuk pengembang): `tests/e2e/README.md` — menjalankan aplikasi terhadap
+PostgreSQL + PostgREST lokal dan mengklik alur nyata tiap role (21 skenario).
 
 ## Deploy ke Vercel
 

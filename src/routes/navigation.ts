@@ -33,6 +33,8 @@ const ALL: AppRole[] = [
   "viewer",
 ];
 
+const INTERNAL: AppRole[] = ALL.filter((r) => r !== "viewer");
+
 /**
  * Menu per role (mengikuti matriks pada docs/00-DESAIN.md).
  * Ini hanya kenyamanan UI — keamanan sebenarnya ditegakkan RLS di database.
@@ -49,8 +51,8 @@ export const NAV_GROUPS: NavGroup[] = [
     title: "Perizinan",
     items: [
       { label: "Data Perizinan", to: "/perizinan", icon: ClipboardList, roles: ALL },
-      { label: "Pemohon", to: "/pemohon", icon: UserSquare2, roles: ALL },
-      { label: "Perusahaan", to: "/perusahaan", icon: Building2, roles: ALL },
+      { label: "Pemohon", to: "/pemohon", icon: UserSquare2, roles: INTERNAL },
+      { label: "Perusahaan", to: "/perusahaan", icon: Building2, roles: INTERNAL },
     ],
   },
   {

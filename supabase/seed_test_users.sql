@@ -1,5 +1,5 @@
 -- ============================================================================
--- SIPAR-BELU · seed_test_users.sql · 5 AKUN UJI (OPSIONAL, HANYA UNTUK LINGKUNGAN UJI)
+-- SIPAR-BELU · seed_test_users.sql · 6 AKUN UJI (OPSIONAL, HANYA UNTUK LINGKUNGAN UJI)
 --
 -- ⚠ Semua akun memakai kata sandi yang sama dan TERTULIS DI FILE INI → tidak aman.
 --   Gunakan hanya di proyek Supabase uji. Sebelum produksi: jalankan bagian
@@ -22,7 +22,8 @@ begin
       ('11111111-1111-1111-1111-111111111102'::uuid, 'adminarsip@example.com',  'Admin Arsip Uji',  'admin_arsip'),
       ('11111111-1111-1111-1111-111111111103'::uuid, 'petugas@example.com',     'Petugas Uji',      'petugas'),
       ('11111111-1111-1111-1111-111111111104'::uuid, 'verifikator@example.com', 'Verifikator Uji',  'verifikator'),
-      ('11111111-1111-1111-1111-111111111105'::uuid, 'pimpinan@example.com',    'Pimpinan Uji',     'pimpinan')
+      ('11111111-1111-1111-1111-111111111105'::uuid, 'pimpinan@example.com',    'Pimpinan Uji',     'pimpinan'),
+      ('11111111-1111-1111-1111-111111111106'::uuid, 'viewer@example.com',      'Viewer Uji',       'viewer')
     ) as t(id, email, full_name, role)
   loop
     insert into auth.users
@@ -54,4 +55,4 @@ end $$;
 -- delete from auth.users where id in (
 --   '11111111-1111-1111-1111-111111111101', '11111111-1111-1111-1111-111111111102',
 --   '11111111-1111-1111-1111-111111111103', '11111111-1111-1111-1111-111111111104',
---   '11111111-1111-1111-1111-111111111105');
+--   '11111111-1111-1111-1111-111111111105', '11111111-1111-1111-1111-111111111106');

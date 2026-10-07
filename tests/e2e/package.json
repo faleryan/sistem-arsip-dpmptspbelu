@@ -1,0 +1,12 @@
+{
+  "name": "sipar-belu-e2e",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "gateway": "node gateway.mjs",
+    "test": "node run.mjs ../../dist-e2e ./hasil"
+  },
+  "devDependencies": {
+    "playwright-core": "^1.63.0"
+  }
+}

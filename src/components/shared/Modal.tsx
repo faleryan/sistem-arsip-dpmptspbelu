@@ -7,12 +7,14 @@ export function Modal({
   title,
   children,
   footer,
+  size = "md",
 }: {
   open: boolean;
   onClose: () => void;
   title: string;
   children: ReactNode;
   footer?: ReactNode;
+  size?: "md" | "lg" | "xl";
 }) {
   const titleId = useId();
 
@@ -33,7 +35,7 @@ export function Modal({
       aria-labelledby={titleId}
     >
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <div className="relative flex max-h-[90vh] w-full max-w-lg flex-col rounded-xl bg-white shadow-xl">
+      <div className={`relative flex max-h-[90vh] w-full flex-col rounded-xl bg-white shadow-xl ${size === "xl" ? "max-w-3xl" : size === "lg" ? "max-w-2xl" : "max-w-lg"}`}>
         <div className="flex items-center justify-between border-b px-5 py-4">
           <h2 id={titleId} className="text-base font-semibold text-navy-900">
             {title}
