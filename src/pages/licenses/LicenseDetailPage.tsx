@@ -22,6 +22,7 @@ import { StatusChangeDialog } from "./StatusChangeDialog";
 import { StatusHistoryCard } from "./StatusHistoryCard";
 import { CompletenessCard } from "./CompletenessCard";
 import { WorkflowStepper } from "./WorkflowStepper";
+import { QrCard, QR_STATUSES } from "./QrCard";
 import { listLicenseDocuments } from "@/services/documents";
 import { DocumentDialogs, type DocDialog } from "@/pages/documents/DocumentDialogs";
 import { LicenseDocumentsCard } from "@/pages/documents/LicenseDocumentsCard";
@@ -256,6 +257,9 @@ export default function LicenseDetailPage() {
                   : undefined
               }
             />
+          ) : null}
+          {internal && QR_STATUSES.includes(l.status) ? (
+            <QrCard licenseId={l.id} code={l.verification_code} label={title} />
           ) : null}
           {internal ? <StatusHistoryCard licenseId={l.id} staff={staff.data} /> : null}
         </div>

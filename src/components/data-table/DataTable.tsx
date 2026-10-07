@@ -47,6 +47,8 @@ type Props<T> = {
   exportAll?: () => Promise<T[]>;
   exportName?: string;
   empty: { icon: LucideIcon; title: string; description?: string; action?: ReactNode };
+  /** Sembunyikan kotak cari bawaan (bila halaman punya formulir pencarian sendiri). */
+  hideSearch?: boolean;
 };
 
 function loadHidden(tableId: string, columns: Column<unknown>[]): Set<string> {
@@ -77,6 +79,7 @@ export function DataTable<T>({
   exportAll,
   exportName,
   empty,
+  hideSearch = false,
 }: Props<T>) {
   const [hidden, setHidden] = useState<Set<string>>(() => loadHidden(tableId, columns as Column<unknown>[]));
   const [exporting, setExporting] = useState(false);
@@ -128,6 +131,7 @@ export function DataTable<T>({
     <div className="rounded-xl border bg-white shadow-sm">
       {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-2 border-b p-3">
+        {hideSearch ? null : (
         <div className="relative min-w-[200px] flex-1 sm:max-w-xs">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
           <Input
@@ -139,6 +143,7 @@ export function DataTable<T>({
             aria-label={searchPlaceholder}
           />
         </div>
+        )}
         {filters}
         {filtered ? (
           <Button variant="ghost" size="sm" onClick={state.resetFilters} className="h-9">

@@ -1,6 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import {
   Activity,
+  AlarmClock,
+  Bell,
   AlertTriangle,
   CalendarClock,
   CheckCircle2,
@@ -15,12 +17,22 @@ import { EmptyState } from "@/components/shared/EmptyState";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatCard } from "./StatCard";
-import { formatDateTime } from "@/utils/format";
+import { formatDateTime, formatRelative } from "@/utils/format";
+import { Link } from "react-router-dom";
+import { listNotifications } from "@/services/notifications";
+import { NotifIcon } from "@/pages/notifications/NotifIcon";
 import { APP_FULL_NAME } from "@/types/domain";
+import { useAuth } from "@/hooks/useAuth";
 
 export default function DashboardPage() {
+  const { hasRole } = useAuth();
+  // Tautan kartu hanya ke halaman yang boleh dibuka role ini.
+  const pendingLink = hasRole("super_admin", "verifikator") ? "/verifikasi" : "/arsip?f_status=MENUNGGU_VERIFIKASI";
+  const reportLink = hasRole("viewer") ? undefined : "/laporan?jenis=berlaku";
   const stats = useQuery({ queryKey: ["dashboard", "stats"], queryFn: fetchDashboardStats });
-  const activity = useQuery({ queryKey: ["dashboard", "activity"], queryFn: () => fetchRecentActivity(8) });
+  // Audit Log hanya boleh dibaca Super Admin, Admin Arsip, Pimpinan (RLS); role lain melihat notifikasinya.
+  const canAudit = hasRole("super_admin", "admin_arsip", "pimpinan");
+  const activity = useQuery({ queryKey: ["dashboard", "activity"], queryFn: () => fetchRecentActivity(8), enabled: canAudit });
 
   return (
     <>
@@ -39,15 +51,25 @@ export default function DashboardPage() {
       ) : null}
 
       <section aria-label="Ringkasan" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Total Perizinan" value={stats.data?.totalLicenses} icon={ClipboardList} loading={stats.isLoading} />
+        <StatCard label="Total Perizinan" value={stats.data?.totalLicenses} icon={ClipboardList} loading={stats.isLoading} to="/perizinan" />
         <StatCard label="Izin Aktif" value={stats.data?.activeLicenses} icon={CheckCircle2} loading={stats.isLoading} />
         <StatCard label="Izin Berakhir" value={stats.data?.expiredLicenses} icon={CalendarClock} loading={stats.isLoading} />
         <StatCard label="Izin Dalam Proses" value={stats.data?.inProgressLicenses} icon={Hourglass} loading={stats.isLoading} />
         <StatCard label="Total Dokumen" value={stats.data?.totalDocuments} icon={FileStack} loading={stats.isLoading} />
-        <StatCard label="Menunggu Verifikasi" value={stats.data?.pendingDocuments} icon={FileClock} loading={stats.isLoading} />
-        <StatCard label="Arsip Bulan Ini" value={stats.data?.archivedThisMonth} icon={Activity} loading={stats.isLoading} />
+        <StatCard label="Menunggu Verifikasi" value={stats.data?.pendingDocuments} icon={FileClock} loading={stats.isLoading} to={pendingLink} />
+        <StatCard label="Arsip Bulan Ini" value={stats.data?.archivedThisMonth} icon={Activity} loading={stats.isLoading} to="/arsip" />
+        <StatCard
+          label="Akan Berakhir (30 hari)"
+          value={stats.data?.expiringSoon}
+          icon={AlarmClock}
+          loading={stats.isLoading}
+          to={reportLink}
+        />
       </section>
 
+      {!canAudit ? (
+        <RecentNotifications />
+      ) : (
       <Card className="mt-6">
         <CardHeader>
           <CardTitle>Aktivitas Terbaru</CardTitle>
@@ -82,6 +104,56 @@ export default function DashboardPage() {
           )}
         </CardContent>
       </Card>
+      )}
     </>
+  );
+}
+
+function RecentNotifications() {
+  const q = useQuery({ queryKey: ["notifications", "latest"], queryFn: () => listNotifications({ limit: 5 }) });
+  return (
+    <Card className="mt-6">
+      <CardHeader className="flex-row items-center justify-between">
+        <div>
+          <CardTitle>Pemberitahuan Terbaru</CardTitle>
+          <CardDescription>Perkembangan permohonan yang terkait dengan Anda.</CardDescription>
+        </div>
+        <Link to="/notifikasi" className="text-sm font-medium text-accent hover:underline">
+          Lihat semua
+        </Link>
+      </CardHeader>
+      <CardContent>
+        {q.isLoading ? (
+          <div className="space-y-3">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <Skeleton key={i} className="h-10 w-full" />
+            ))}
+          </div>
+        ) : !q.data?.rows.length ? (
+          <EmptyState icon={Bell} title="Belum ada pemberitahuan" description="Pemberitahuan muncul saat ada perubahan pada permohonan Anda." />
+        ) : (
+          <ul className="divide-y">
+            {q.data.rows.map((n) => (
+              <li key={n.id} className="flex items-start gap-3 py-3 text-sm">
+                <NotifIcon type={n.type} />
+                <div className="min-w-0 flex-1">
+                  {n.link ? (
+                    <Link to={n.link} className={n.is_read ? "hover:underline" : "font-semibold text-navy-900 hover:underline"}>
+                      {n.title}
+                    </Link>
+                  ) : (
+                    <span className={n.is_read ? "" : "font-semibold text-navy-900"}>{n.title}</span>
+                  )}
+                  {n.body ? <p className="truncate text-muted-foreground">{n.body}</p> : null}
+                </div>
+                <time className="shrink-0 text-xs text-muted-foreground" dateTime={n.created_at}>
+                  {formatRelative(n.created_at)}
+                </time>
+              </li>
+            ))}
+          </ul>
+        )}
+      </CardContent>
+    </Card>
   );
 }

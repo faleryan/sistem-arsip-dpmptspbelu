@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import type { LucideIcon } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -8,14 +9,17 @@ export function StatCard({
   value,
   icon: Icon,
   loading,
+  to,
 }: {
   label: string;
   value: number | undefined;
   icon: LucideIcon;
   loading: boolean;
+  /** Bila diisi, kartu menjadi tautan ke halaman rincian. */
+  to?: string;
 }) {
-  return (
-    <Card className="p-5">
+  const card = (
+    <Card className={to ? "p-5 transition-colors hover:border-navy-300" : "p-5"}>
       <div className="flex items-start justify-between">
         <div>
           <p className="text-xs font-medium text-muted-foreground">{label}</p>
@@ -30,5 +34,12 @@ export function StatCard({
         </div>
       </div>
     </Card>
+  );
+  return to ? (
+    <Link to={to} className="block rounded-xl" aria-label={`${label}: ${formatNumber(value)}. Lihat rincian`}>
+      {card}
+    </Link>
+  ) : (
+    card
   );
 }

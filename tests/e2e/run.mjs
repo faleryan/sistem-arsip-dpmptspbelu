@@ -2,17 +2,26 @@
 // Pemakaian: node run.mjs <folder dist> <folder hasil screenshot>
 import { chromium } from "playwright-core";
 import http from "node:http";
-import { readFileSync, existsSync, mkdirSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { join, extname } from "node:path";
 
 const DIST = process.argv[2];
 const OUT = process.argv[3];
 mkdirSync(OUT, { recursive: true });
 const mime = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml" };
+// Header keamanan produksi (vercel.json) ikut dikirim, dengan domain Supabase diganti gateway lokal,
+// sehingga pelanggaran CSP (mis. worker, iframe, eval) tertangkap sebagai galat konsol.
+const vercel = JSON.parse(readFileSync(new URL("../../vercel.json", import.meta.url), "utf8"));
+const prodHeaders = Object.fromEntries(
+  vercel.headers.find((h) => h.source === "/(.*)").headers.map(({ key, value }) => [
+    key.toLowerCase(),
+    value.replace(/https:\/\/\*\.supabase\.co/g, "http://127.0.0.1:54321").replace(/wss:\/\/\*\.supabase\.co/g, "ws://127.0.0.1:54321"),
+  ]),
+);
 const server = http.createServer((req, res) => {
   let p = join(DIST, req.url.split("?")[0]);
   if (!existsSync(p) || p === DIST || !extname(p)) p = join(DIST, "index.html");
-  res.writeHead(200, { "content-type": mime[extname(p)] ?? "application/octet-stream" });
+  res.writeHead(200, { ...prodHeaders, "content-type": mime[extname(p)] ?? "application/octet-stream" });
   res.end(readFileSync(p));
 }).listen(4174);
 const APP = "http://localhost:4174";
@@ -26,9 +35,15 @@ let current = "";
 let curPage = null;
 let expectedHttp = []; // regex daftar respons galat yang memang diharapkan dalam langkah saat ini
 
-async function session(email, { w = 1366, h = 860 } = {}) {
+async function blankPage({ w = 1366, h = 860 } = {}) {
   const ctx = await browser.newContext({ viewport: { width: w, height: h }, acceptDownloads: true });
   const page = await ctx.newPage();
+  watch(page);
+  curPage = page;
+  return { page, ctx };
+}
+
+function watch(page) {
   page.on("pageerror", (e) => problems.push(`[${current}] pageerror: ${e.message}`));
   page.on("console", (m) => {
     if (m.type() === "error" && !/Failed to load resource/.test(m.text())) problems.push(`[${current}] console: ${m.text()}`);
@@ -39,6 +54,10 @@ async function session(email, { w = 1366, h = 860 } = {}) {
     const line = `${r.request().method()} ${r.url().replace("http://127.0.0.1:54321", "")} → ${r.status()} ${body.slice(0, 160)}`;
     if (!expectedHttp.some((re) => re.test(line))) problems.push(`[${current}] http: ${line}`);
   });
+}
+
+async function session(email, opts = {}) {
+  const { page, ctx } = await blankPage(opts);
   await page.goto(`${APP}/login`);
   await page.fill("#email", email);
   await page.fill("#password", "SiparBelu#Uji2026");
@@ -76,7 +95,7 @@ await step("SA: daftar perizinan memuat 6 data contoh dari view", async () => {
 });
 
 await step("SA: pencarian ber-debounce + URL tersinkron", async () => {
-  await sa.fill("input[type=search]", "Contoh Dua");
+  await sa.fill("main input[type=search]", "Contoh Dua");
   await sa.waitForURL(/q=Contoh/);
   await sa.waitForFunction(() => document.querySelectorAll("tbody tr").length === 1);
   if (!(await sa.locator("tbody").innerText()).includes("Pemohon Contoh Dua")) throw new Error("hasil salah");
@@ -519,7 +538,7 @@ await step("Arsip Digital: filter jenis, cari nama file, ekspor CSV", async () =
   await sa.selectOption("select[aria-label='Jenis dokumen']", { label: "KTP" });
   await sa.waitForURL(/f_type=/);
   await sa.waitForFunction(() => [...document.querySelectorAll("tbody tr td:nth-child(2)")].every((td) => td.textContent === "KTP"));
-  await sa.fill("input[type=search]", "Maria v2");
+  await sa.fill("main input[type=search]", "Maria v2");
   await sa.waitForFunction(() => document.querySelectorAll("tbody tr").length === 1 && document.querySelector("tbody").innerText.includes("KTP Maria Uji Coba"));
   const [dl] = await Promise.all([sa.waitForEvent("download"), sa.click("button:has-text('Ekspor CSV')")]);
   const csv = readFileSync(await dl.path(), "utf8");
@@ -656,6 +675,182 @@ await step("Pimpinan: boleh membaca Audit Log, tanpa menu Data Terhapus & Antrea
   await pm.waitForURL(/tidak-berwenang/);
 });
 await pm.close();
+
+// ───────────────────────── Fase 6: QR, notifikasi, laporan, pencarian ─────────────────────────
+const isPdf = (b) => b.subarray(0, 5).toString() === "%PDF-";
+const isZip = (b) => b[0] === 0x50 && b[1] === 0x4b; // .xlsx = arsip zip
+const isPng = (b) => b.subarray(1, 4).toString() === "PNG";
+let liveCode = "";
+let expiredCode = "";
+
+({ page: ad, ctx: adCtx } = await session("adminarsip@example.com"));
+await step("QR: kartu QR pada izin terbit, unduh PNG, halaman cetak label", async () => {
+  await ad.goto(newLicenseUrl);
+  const card = ad.locator("div.rounded-xl:has(h3:has-text('QR verifikasi'))");
+  await card.waitFor();
+  await ad.waitForFunction(() => { const i = document.querySelector("img[alt^='QR verifikasi izin']"); return i && i.complete && i.naturalWidth > 0; });
+  liveCode = (await card.locator("p.font-mono").innerText()).trim();
+  if (!/^[A-Z0-9]{12}$/.test(liveCode)) throw new Error(liveCode);
+  const [dl] = await Promise.all([ad.waitForEvent("download"), card.locator("button:has-text('Unduh PNG')").click()]);
+  if (!dl.suggestedFilename().endsWith(".png") || !isPng(readFileSync(await dl.path()))) throw new Error(dl.suggestedFilename());
+  await shot(ad, "50-qr-card");
+  const [printPage] = await Promise.all([ad.context().waitForEvent("page"), card.locator("a:has-text('Cetak label')").click()]);
+  watch(printPage);
+  await printPage.waitForSelector(`text=${liveCode}`);
+  await printPage.waitForFunction(() => { const i = document.querySelector("img[alt='QR verifikasi']"); return i && i.complete && i.naturalWidth > 0; });
+  await printPage.screenshot({ path: `${OUT}/51-cetak-label.png` });
+  await printPage.close();
+  expiredCode = await ad.evaluate(async () => {
+    const t = JSON.parse(localStorage.getItem("sb-127-auth-token") ?? sessionStorage.getItem("sb-127-auth-token")).access_token;
+    const r = await fetch("http://127.0.0.1:54321/rest/v1/licenses?select=verification_code&application_number=eq.PMH-2021-90003", {
+      headers: { authorization: `Bearer ${t}`, apikey: "anon-key" } });
+    return (await r.json())[0].verification_code;
+  });
+});
+await ad.close(); await adCtx.close();
+
+let pub, pubCtx;
+({ page: pub, ctx: pubCtx } = await blankPage({ w: 390, h: 844 }));
+await step("Publik (tanpa login, ponsel): QR izin aktif → sah & berlaku, tanpa data pribadi", async () => {
+  await pub.goto(`${APP}/verify/${liveCode}`);
+  await pub.waitForSelector("text=Izin sah dan berlaku");
+  const body = await pub.locator("main").innerText();
+  for (const want of ["503/UJI/E2E/2026", "CV Uji Sejahtera", "Izin Lokasi", "Berlaku sampai", liveCode]) if (!body.includes(want)) throw new Error(`tanpa "${want}"`);
+  for (const secret of ["5304011234567890", "Maria Uji Coba"]) if (body.includes(secret)) throw new Error(`membocorkan ${secret}`);
+  const overflow = await pub.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+  if (overflow > 1) throw new Error(`overflow ${overflow}px`);
+  await shot(pub, "52-verify-publik");
+});
+await step("Publik: izin berakhir, kode tidak dikenal, dan input kode manual", async () => {
+  await pub.goto(`${APP}/verify/${expiredCode}`);
+  await pub.waitForSelector("text=masa berlakunya telah habis");
+  await pub.goto(`${APP}/verify/ZZZZZZZZZZZZ`);
+  await pub.waitForSelector("text=Izin tidak ditemukan");
+  await pub.goto(`${APP}/verify/abc`);
+  await pub.waitForSelector("text=Format kode tidak valid");
+  await pub.fill("#verify-code", liveCode.toLowerCase());
+  await pub.click("button:has-text('Periksa')");
+  await pub.waitForURL(new RegExp(`/verify/${liveCode}$`));
+  await pub.waitForSelector("text=Izin sah dan berlaku");
+});
+await pubCtx.close();
+
+({ page: pt, ctx: ptCtx } = await session("petugas@example.com"));
+await step("Notifikasi: lonceng berisi jumlah belum dibaca; klik item membuka izin & mengurangi badge", async () => {
+  const bell = pt.locator("button[aria-label^='Notifikasi']");
+  await pt.waitForSelector("button[aria-label^='Notifikasi,']");
+  const before = Number((await bell.getAttribute("aria-label")).match(/(\d+) belum/)[1]);
+  if (before < 3) throw new Error(`badge ${before}`);
+  await bell.click();
+  await pt.waitForSelector("[role=menu] >> text=Dokumen ditolak");
+  await shot(pt, "53-panel-notifikasi");
+  await pt.click("[role=menu] [role=menuitem]:has-text('Izin diterbitkan')");
+  await pt.waitForURL(newLicenseUrl);
+  await pt.waitForFunction((b) => {
+    const l = document.querySelector("button[aria-label^='Notifikasi']")?.getAttribute("aria-label") ?? "";
+    const m = l.match(/(\d+) belum/);
+    return (m ? Number(m[1]) : 0) === b - 1;
+  }, before);
+});
+await step("Notifikasi: halaman daftar, saring belum dibaca, tandai semua dibaca, hapus", async () => {
+  await pt.goto(`${APP}/notifikasi`);
+  await pt.waitForSelector("li >> text=Dokumen ditolak");
+  await pt.click("[role=tab]:has-text('Belum dibaca')");
+  await pt.click("button:has-text('Tandai semua dibaca')");
+  await toast(pt, "Semua notifikasi ditandai dibaca");
+  await pt.waitForSelector("text=Semua notifikasi sudah dibaca");
+  await pt.waitForSelector("button[aria-label='Notifikasi']");
+  await pt.click("[role=tab]:has-text('Semua')");
+  const n0 = await pt.locator("main li").count();
+  await pt.click("main li >> nth=0 >> button[aria-label^='Hapus notifikasi']");
+  await pt.waitForFunction((n) => document.querySelectorAll("main li").length === n - 1, n0);
+});
+await step("Laporan: Petugas boleh melihat tanpa tombol ekspor", async () => {
+  await pt.goto(`${APP}/laporan`);
+  await pt.waitForSelector("text=Rekapitulasi Perizinan per Jenis Izin");
+  await pt.waitForSelector("text=Ekspor laporan tersedia untuk Admin Arsip dan Pimpinan.");
+  if (await pt.locator("button:has-text('Excel')").count()) throw new Error("tombol ekspor tampil");
+});
+await pt.close(); await ptCtx.close();
+
+const { page: pm2, ctx: pm2Ctx } = await session("pimpinan@example.com");
+await step("Laporan rekap: tabel + total, grafik bulanan 12 bulan dengan tooltip", async () => {
+  await pm2.goto(`${APP}/laporan`);
+  await pm2.waitForSelector("tfoot >> text=Jumlah");
+  await pm2.waitForSelector("figure svg[role=img]");
+  if ((await pm2.locator("figure svg g[role=button]").count()) !== 12) throw new Error("bukan 12 bulan");
+  const month = new Date().getMonth();
+  await pm2.locator("figure svg g[role=button]").nth(month).hover();
+  await pm2.waitForSelector("[role=tooltip] >> text=Permohonan masuk");
+  await pm2.click("button:has-text('Lihat tabel')");
+  await pm2.waitForSelector("figure table >> text=Desember");
+  await shot(pm2, "54-laporan-rekap");
+});
+await step("Laporan: ekspor Excel, PDF, CSV (di bawah CSP produksi)", async () => {
+  for (const [label, check] of [["Excel", (b, n) => isZip(b) && n.endsWith(".xlsx")], ["PDF", (b, n) => isPdf(b) && n.endsWith(".pdf")], ["CSV", (b, n) => n.endsWith(".csv") && b.toString("utf8").includes("Jenis izin;Dalam proses")]]) {
+    const [dl] = await Promise.all([pm2.waitForEvent("download", { timeout: 20000 }), pm2.click(`button:has-text('${label}')`)]);
+    const buf = readFileSync(await dl.path());
+    if (!check(buf, dl.suggestedFilename()) || buf.length < (label === "CSV" ? 50 : 500)) throw new Error(`${label}: ${dl.suggestedFilename()} ${buf.length}B`);
+    if (label === "PDF") writeFileSync(`${OUT}/laporan.pdf`, buf);
+    if (label === "Excel") writeFileSync(`${OUT}/laporan.xlsx`, buf);
+  }
+});
+await step("Laporan izin terbit & masa berlaku & dokumen; filter tersimpan di URL", async () => {
+  await pm2.click("[role=tab]:has-text('Izin terbit')");
+  await pm2.waitForURL(/jenis=terbit/);
+  await pm2.waitForSelector("tbody >> text=503/UJI/E2E/2026");
+  await pm2.click("[role=tab]:has-text('Masa berlaku')");
+  await pm2.waitForSelector("text=/Izin Akan Berakhir dalam 30 Hari/");
+  await pm2.selectOption("label:has-text('Tampilkan') select", "sudah");
+  await pm2.fill("label:has-text('Dari tanggal') input", "2020-01-01");
+  await pm2.waitForSelector("tbody >> text=IZIN/IL/0003/2021");
+  await pm2.click("[role=tab]:has-text('Dokumen arsip')");
+  await pm2.waitForSelector("text=Rekapitulasi Dokumen Arsip");
+  await pm2.waitForSelector("tfoot >> text=Jumlah");
+});
+await pm2Ctx.close();
+
+({ page: sa, ctx: saCtx } = await session("superadmin@example.com"));
+await step("Pencarian: cari cepat di topbar → hasil Perizinan & Dokumen dengan jumlah", async () => {
+  await sa.fill("header input[type=search]", "Maria");
+  await sa.press("header input[type=search]", "Enter");
+  await sa.waitForURL(/\/pencarian\?q=Maria/);
+  await sa.waitForSelector("tbody >> text=503/UJI/E2E/2026");
+  const tabs = await sa.locator("[role=tablist][aria-label='Hasil pencarian']").innerText();
+  if (!/Perizinan\s*1/.test(tabs) || /Dokumen\s*…/.test(tabs)) throw new Error(tabs);
+  await sa.click("[role=tab]:has-text('Dokumen')");
+  await sa.waitForSelector("tbody >> text=KTP Maria Uji Coba");
+  await shot(sa, "55-pencarian");
+});
+await step("Pencarian lanjutan: NIB tepat + status, tanpa kata kunci", async () => {
+  await sa.goto(`${APP}/pencarian`);
+  await sa.waitForSelector("text=Masukkan kata kunci atau pilih filter");
+  await sa.click("button:has-text('Filter')");
+  await sa.fill("label:has-text('NIB (tepat)') input", "9120001234567");
+  await sa.selectOption("label:has-text('Status izin') select", "AKTIF");
+  await sa.click("button:has-text('Terapkan')");
+  await sa.waitForURL(/nib=9120001234567/);
+  await sa.waitForSelector("tbody >> text=503/UJI/E2E/2026");
+  if ((await sa.locator("tbody tr").count()) !== 1) throw new Error("hasil lebih dari satu");
+});
+await step("Dashboard: kartu akan berakhir & tautan menunggu verifikasi", async () => {
+  await sa.goto(`${APP}/`);
+  await sa.waitForSelector("a[aria-label^='Akan Berakhir (30 hari)']");
+  await sa.click("a[aria-label^='Menunggu Verifikasi']");
+  await sa.waitForURL(/\/verifikasi/);
+});
+await sa.close(); await saCtx.close();
+
+({ page: vw, ctx: vwCtx } = await session("viewer@example.com"));
+await step("Viewer: pencarian dokumen hanya Surat Izin; tanpa filter NIK", async () => {
+  await vw.goto(`${APP}/pencarian?q=Surat&tab=dokumen`);
+  await vw.waitForSelector("tbody tr >> text=Surat Izin");
+  const types = await vw.locator("tbody tr td:nth-child(2)").allInnerTexts();
+  if (types.some((t) => t !== "Surat Izin")) throw new Error(types.join(","));
+  await vw.click("button:has-text('Filter')");
+  if (await vw.locator("text=NIK pemohon (tepat)").count()) throw new Error("filter NIK tampil");
+});
+await vw.close(); await vwCtx.close();
 
 // ───────────────────────── Super Admin: hapus + mobile ─────────────────────────
 ({ page: sa, ctx: saCtx } = await session("superadmin@example.com", { w: 390, h: 844 }));

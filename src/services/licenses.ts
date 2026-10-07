@@ -44,6 +44,18 @@ export function licenseSpec(base: Record<string, string> = {}): ListSpec {
       if (f.year && /^\d{4}$/.test(f.year)) q = q.eq("year", Number(f.year));
       if (f.applicant) q = q.eq("applicant_id", f.applicant);
       if (f.business) q = q.eq("business_id", f.business);
+      // Rentang tanggal (YYYY-MM-DD) untuk laporan & pencarian lanjutan.
+      const iso = (v?: string) => (v && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null);
+      for (const [key, col] of [["app", "application_date"], ["issue", "issue_date"], ["expiry", "expiry_date"]] as const) {
+        const from = iso(f[`${key}_from`]);
+        const to = iso(f[`${key}_to`]);
+        if (from) q = q.gte(col, from);
+        if (to) q = q.lte(col, to);
+      }
+      // Pencocokan tepat (bukan "mengandung") untuk nomor identitas.
+      if (f.nik) q = q.eq("applicant_nik", f.nik.replace(/\s/g, ""));
+      if (f.nib) q = q.eq("nib", f.nib.replace(/\s/g, ""));
+      if (f.license_number) q = q.eq("license_number", f.license_number.trim());
       return q;
     },
   };

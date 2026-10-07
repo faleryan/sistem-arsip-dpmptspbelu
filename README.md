@@ -4,7 +4,7 @@ Sistem Informasi Pengarsipan dan Manajemen Dokumen Perizinan — DPMPTSP Kabupat
 
 React + TypeScript + Vite + Tailwind · Supabase (Auth, PostgreSQL + RLS, Storage) · hosting Vercel.
 
-Desain lengkap: [`docs/00-DESAIN.md`](docs/00-DESAIN.md). Status: **Fase 1–5 selesai** (lihat roadmap di dokumen desain).
+Desain lengkap: [`docs/00-DESAIN.md`](docs/00-DESAIN.md). Status: **Fase 1–6 selesai** (lihat roadmap di dokumen desain).
 
 Yang sudah bisa dipakai: login dan peran, dashboard, Pengguna & Role, **Data Perizinan** (daftar, tambah, detail,
 ubah, ubah status sesuai workflow, riwayat status, kelengkapan dokumen), **Pemohon**, **Perusahaan**, dan
@@ -22,6 +22,12 @@ di detail izin (Draft → Diajukan → Verifikasi → Disetujui → Diterbitkan 
 rincian perubahan nilai lama → baru (plus tombol *Jejak audit* di setiap detail), dan **Data Terhapus** untuk
 memulihkan data yang dihapus lunak.
 
+**Layanan & pelaporan** (Fase 6): halaman publik **verifikasi QR** `/verify/<kode>` (tanpa login, ramah ponsel,
+hanya data aman), kartu QR di detail izin terbit (unduh PNG, **cetak label**), **Notifikasi** (lonceng dengan
+jumlah belum dibaca, panel, halaman daftar, tandai dibaca, hapus), **Laporan** (rekap per jenis izin dengan tren
+bulanan, per kecamatan, izin terbit, masa berlaku, dokumen arsip) dengan ekspor **Excel, PDF, CSV** berkop instansi,
+dan **Pencarian Arsip** lanjutan (kata kunci + filter, hasil izin & dokumen sekaligus; kotak cari cepat di topbar).
+
 ## Menjalankan lokal
 
 ```bash
@@ -35,10 +41,10 @@ npm run build             # typecheck + build produksi ke dist/
 
 1. Buat proyek di supabase.com. Ambil **Project URL** dan **anon public key** (Settings → API).
 2. SQL Editor → jalankan file di `supabase/migrations/` **berurutan**, satu per satu:
-   `0001` → `0002` → `0003` → `0004` → `0005` → `0006` → `0007` → `0008` → `0009`. Semuanya aman dijalankan ulang.
+   `0001` → `0002` → `0003` → `0004` → `0005` → `0006` → `0007` → `0008` → `0009` → `0010`. Semuanya aman dijalankan ulang.
    **`0007` harus dijalankan sendiri** (satu kali *Run*), baru kemudian `0008` — PostgreSQL tidak mengizinkan
    status enum baru dipakai dalam eksekusi yang sama dengan penambahannya.
-   Sudah menjalankan migration fase sebelumnya? Cukup jalankan yang belum (Fase 4: `0007` lalu `0008`; Fase 5: `0009`).
+   Sudah menjalankan migration fase sebelumnya? Cukup jalankan yang belum (Fase 4: `0007` lalu `0008`; Fase 5: `0009`; Fase 6: `0010`).
    Bila muncul catatan tentang `pg_cron`, aktifkan di Database → Extensions lalu jalankan ulang `0003`
    (penjadwalan harian: izin berakhir otomatis + notifikasi).
 3. Buat Super Admin pertama (langkah manual di bagian bawah `0001`).
@@ -57,7 +63,7 @@ npm run build             # typecheck + build produksi ke dist/
 
 ## Menguji database (RLS, workflow, storage)
 
-Suite ini menjalankan semua migration di PostgreSQL lokal (PGlite) dan menguji 73 skenario per role:
+Suite ini menjalankan semua migration di PostgreSQL lokal (PGlite) dan menguji 77 skenario per role:
 
 ```bash
 cd supabase/tests
@@ -70,8 +76,9 @@ singkat di proyek Anda (login tiap role uji, coba unggah dan verifikasi) setelah
 
 Uji antarmuka end-to-end (opsional, untuk pengembang): `tests/e2e/README.md` — menjalankan aplikasi terhadap
 PostgreSQL + PostgREST lokal (dengan tiruan Storage API yang memakai policy RLS asli) dan mengklik alur nyata
-tiap role (41 skenario: master data, CRUD, unggah/pratinjau/unduh/versi dokumen, verifikasi, alur penuh
-Draft → Aktif, Audit Log, dan pemulihan data).
+tiap role (54 skenario: master data, CRUD, unggah/pratinjau/unduh/versi dokumen, verifikasi, alur penuh
+Draft → Aktif, Audit Log, pemulihan data, QR publik, notifikasi, laporan + ekspor, pencarian). Server uji mengirim
+header keamanan yang sama dengan `vercel.json` (CSP), sehingga pelanggaran CSP ikut tertangkap.
 
 ## Deploy ke Vercel
 
@@ -81,6 +88,9 @@ Draft → Aktif, Audit Log, dan pemulihan data).
 3. Environment Variables (Production dan Preview):
    - `VITE_SUPABASE_URL`
    - `VITE_SUPABASE_ANON_KEY`
+   - (opsional) `VITE_PUBLIC_APP_URL` — domain yang dicetak di QR, mis. `https://sipar.belukab.go.id`.
+     Isi **sebelum** mulai mencetak QR bila domain akhir berbeda dari domain Vercel; QR yang sudah tercetak
+     memuat domain lama.
 4. Deploy. Setelah domain Vercel (mis. `sipar-belu.vercel.app`) terbit, daftarkan di Supabase:
    Authentication → URL Configuration → **Site URL** dan **Redirect URLs**
    (`https://domain-anda/reset-password`). Tanpa ini email "lupa kata sandi" tidak akan kembali ke aplikasi.

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { Link, useLocation } from "react-router-dom";
-import { Bell, ChevronDown, LogOut, Menu } from "lucide-react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { ChevronDown, LogOut, Menu, Search } from "lucide-react";
+import { NotificationBell } from "@/pages/notifications/NotificationBell";
 import { useAuth } from "@/hooks/useAuth";
 import { PAGE_TITLES } from "@/routes/navigation";
 import { ROLE_LABEL } from "@/types/domain";
@@ -10,6 +11,8 @@ export function Topbar({ onOpenMenu }: { onOpenMenu: () => void }) {
   const { profile, signOut } = useAuth();
   const { pathname } = useLocation();
   const [open, setOpen] = useState(false);
+  const [quick, setQuick] = useState("");
+  const navigate = useNavigate();
   const ref = useRef<HTMLDivElement>(null);
 
   const base = "/" + (pathname.split("/")[1] ?? "");
@@ -45,12 +48,33 @@ export function Topbar({ onOpenMenu }: { onOpenMenu: () => void }) {
       <h1 className="text-base font-semibold text-navy-900">{title}</h1>
 
       <div className="ml-auto flex items-center gap-2">
-        {/* Jumlah notifikasi belum dibaca disambungkan ke database di Fase 6. */}
-        <Button variant="ghost" size="icon" asChild aria-label="Notifikasi">
-          <Link to="/notifikasi">
-            <Bell className="h-5 w-5" aria-hidden />
+        <form
+          role="search"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const q = quick.trim();
+            navigate(q ? `/pencarian?q=${encodeURIComponent(q)}` : "/pencarian");
+            setQuick("");
+          }}
+          className="relative hidden md:block"
+        >
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
+          <input
+            type="search"
+            value={quick}
+            onChange={(e) => setQuick(e.target.value)}
+            placeholder="Cari arsip…"
+            aria-label="Cari arsip (no. izin, pemohon, dokumen)"
+            className="h-9 w-56 rounded-lg border bg-slate-50 pl-9 pr-3 text-sm placeholder:text-muted-foreground focus:bg-white lg:w-72"
+          />
+        </form>
+        <Button variant="ghost" size="icon" asChild className="md:hidden" aria-label="Cari arsip">
+          <Link to="/pencarian">
+            <Search className="h-5 w-5" aria-hidden />
           </Link>
         </Button>
+
+        <NotificationBell />
 
         <div className="relative" ref={ref}>
           <button

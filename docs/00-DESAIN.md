@@ -382,3 +382,25 @@ disetujui → terbit → aktif otomatis.
 | 7 | **Audit Log** (`/audit`, Super Admin/Admin Arsip/Pimpinan): filter aksi, modul, pengguna, rentang tanggal (WITA), pencarian keterangan; detail menampilkan perubahan kolom **sebelum → sesudah**, IP, perangkat, dan tombol *Buka data*. Ekspor CSV maks. 20.000 baris. Tombol **Jejak audit** di detail izin/pemohon/perusahaan membuka log yang disaring untuk data itu. | Audit dapat ditelusuri dari dua arah: dari log ke data, dan dari data ke log. |
 | 8 | **Data Terhapus** (`/terhapus`, Super Admin & Admin Arsip): tab Perizinan, Pemohon, Perusahaan, Dokumen. Pemulihan izin/pemohon/perusahaan hanya Super Admin; dokumen juga Admin Arsip, dan hanya bila izinnya tidak sedang terhapus. | Sesuai `guard_soft_delete` dan RLS yang sekarang diuji eksplisit. |
 | 9 | Notifikasi (badge, halaman, tandai dibaca) dikerjakan di Fase 6. Data notifikasinya sudah dibuat database sejak Fase 2 (mis. "Dokumen ditolak", "Permohonan menunggu verifikasi"). | Sesuai roadmap. |
+
+---
+
+## 14. Keputusan saat Fase 6 (QR publik, notifikasi, laporan, pencarian)
+
+Migration baru: `0010_reports_qr.sql`. Suite database 77/77 (4 skenario laporan baru; tes QR diperbarui).
+Uji antarmuka 54/54 **dengan header keamanan produksi (CSP) aktif** di server uji.
+
+| # | Keputusan | Alasan |
+|---|-----------|--------|
+| 1 | `verify_license()` kini juga mengembalikan **tanggal berakhir** (7 kolom). Tetap tanpa NIK, NPWP, alamat, atau nama pemohon bila izin atas nama perusahaan. | Pertanyaan utama pemindai QR adalah "masih berlaku?"; tanggal itu tercetak di surat izin, jadi aman. Tipe hasil berubah sehingga fungsi di-drop lalu dibuat ulang. |
+| 2 | Halaman publik `/verify/:kode` berada di luar layout aplikasi dan tidak memerlukan login. Empat hasil: sah & berlaku, sah (belum aktif), sudah berakhir, dicabut; plus "tidak ditemukan" dan input kode manual. | Dipakai warga/instansi lain dari ponsel. |
+| 3 | URL di QR = `VITE_PUBLIC_APP_URL` atau domain aplikasi saat ini. | QR yang sudah dicetak tidak bisa diubah; domain final sebaiknya ditetapkan sebelum pencetakan massal. |
+| 4 | Ruang kode 36¹² (≈4,7 × 10¹⁸) membuat tebakan acak tidak praktis; pembatasan laju mengandalkan batas API Supabase. Penguatan tambahan (mis. Edge Function dengan rate limit per IP) dinilai di Fase 7. | Risiko rendah; data yang dibuka memang data publik. |
+| 5 | Notifikasi: jumlah belum dibaca diperbarui setiap **60 detik** dan saat tab aktif kembali (polling), bukan Supabase Realtime. | Tidak perlu mengaktifkan replikasi tabel dan mengatur kebijakan Realtime; kebutuhan "segera tahu dalam hitungan menit" terpenuhi. |
+| 6 | Fungsi laporan (`report_license_summary`, `report_monthly`, `report_document_summary`) bersifat **SECURITY INVOKER** dan membaca view yang sudah menyaring per role; anon ditolak. | Angka laporan selalu sama dengan data yang boleh dilihat pemanggil. |
+| 7 | Laporan dapat **dilihat** Petugas & Verifikator, tetapi **diekspor** hanya oleh Super Admin, Admin Arsip, Pimpinan (sesuai matriks bagian 5). Pembatasan ekspor bersifat UI; datanya sendiri dijaga RLS. | Sesuai matriks. |
+| 8 | Tampilan dan file ekspor dibangun dari **model yang sama** (judul, periode, kolom, baris, total, kop instansi, pencetak, waktu WITA, nomor halaman PDF). Tampilan layar dibatasi 500 baris; file berisi semua (maks. 10.000). | Tidak mungkin ada selisih antara yang dilihat dan yang dicetak. |
+| 9 | Library Excel (`write-excel-file`), PDF (`jspdf` + `jspdf-autotable`), dan QR (`qrcode`) dimuat **saat dipakai**. CSP ditambah `worker-src 'self' blob:` karena kompresi XLSX memakai Web Worker dari blob URL. | Halaman lain tetap ringan. Relaksasi aman: blob URL hanya dapat dibuat skrip yang sudah berjalan dari domain sendiri, dan `script-src 'self'` tetap menolak skrip sisipan. |
+| 10 | Grafik tren bulanan: kolom berkelompok dua seri dengan palet yang lolos validator warna (CVD ΔE 24,7; kontras ≥ 3:1), legenda, tooltip saat hover/fokus keyboard, dan tabel alternatif. | Aksesibel tanpa bergantung warna. |
+| 11 | Pencarian Arsip memakai view yang sama dengan daftar (role tetap tersaring); NIK/NIB/nomor izin dicocokkan **tepat**, kata kunci dicocokkan **mengandung**. Filter NIK disembunyikan bagi Viewer (kolomnya juga disamarkan view). | Pencarian identitas harus presisi; pencarian teks harus longgar. |
+| 12 | Dashboard: kartu "Akan berakhir (30 hari)" dan kartu yang dapat diklik ke rinciannya (tujuan disesuaikan role). Role tanpa akses Audit Log melihat "Pemberitahuan terbaru", bukan "Aktivitas terbaru" yang kosong. | Ditemukan saat meninjau tangkapan layar Petugas. |

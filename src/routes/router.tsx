@@ -18,6 +18,11 @@ import ArchivePage from "@/pages/documents/ArchivePage";
 import VerificationQueuePage from "@/pages/verification/VerificationQueuePage";
 import AuditLogPage from "@/pages/audit/AuditLogPage";
 import TrashPage from "@/pages/trash/TrashPage";
+import VerifyPage from "@/pages/verify/VerifyPage";
+import QrPrintPage from "@/pages/licenses/QrPrintPage";
+import NotificationsPage from "@/pages/notifications/NotificationsPage";
+import ReportsPage from "@/pages/reports/ReportsPage";
+import SearchPage from "@/pages/search/SearchPage";
 import ComingSoonPage from "@/pages/shared/ComingSoonPage";
 import NotFoundPage from "@/pages/shared/NotFoundPage";
 
@@ -32,16 +37,23 @@ export const router = createBrowserRouter([
   // Dapat dibuka dengan sesi pemulihan dari email (tidak lewat GuestRoute/ProtectedRoute).
   { path: "/reset-password", element: <ResetPasswordPage /> },
 
-  // Halaman verifikasi QR publik (tanpa login) ditambahkan di Fase 6: /verify/:code
+  // Halaman verifikasi QR publik — tanpa login, tanpa layout aplikasi.
+  { path: "/verify", element: <VerifyPage /> },
+  { path: "/verify/:code", element: <VerifyPage /> },
 
   {
     element: <ProtectedRoute />,
     children: [
+      // Halaman cetak (tanpa sidebar/topbar), hanya role internal.
+      {
+        element: <RoleGuard roles={["super_admin", "admin_arsip", "petugas", "verifikator", "pimpinan"]} />,
+        children: [{ path: "/cetak/qr/:id", element: <QrPrintPage /> }],
+      },
       {
         element: <AppLayout />,
         children: [
           { index: true, element: <DashboardPage /> },
-          { path: "pencarian", element: <ComingSoonPage title="Pencarian Arsip" phase={6} /> },
+          { path: "pencarian", element: <SearchPage /> },
           { path: "perizinan", element: <LicensesPage /> },
           { path: "perizinan/:id", element: <LicenseDetailPage /> },
           {
@@ -64,9 +76,9 @@ export const router = createBrowserRouter([
           { path: "arsip", element: <ArchivePage /> },
           {
             element: <RoleGuard roles={["super_admin", "admin_arsip", "petugas", "verifikator", "pimpinan"]} />,
-            children: [{ path: "laporan", element: <ComingSoonPage title="Laporan" phase={6} /> }],
+            children: [{ path: "laporan", element: <ReportsPage /> }],
           },
-          { path: "notifikasi", element: <ComingSoonPage title="Notifikasi" phase={6} /> },
+          { path: "notifikasi", element: <NotificationsPage /> },
           { path: "master", element: <Navigate to="/master/jenis-izin" replace /> },
           { path: "master/:slug", element: <MasterDataPage /> },
           {

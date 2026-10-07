@@ -1,4 +1,5 @@
 import { supabase } from "@/lib/supabase";
+import { addDays, todayWita } from "@/utils/date";
 
 export type DashboardStats = {
   totalLicenses: number;
@@ -8,6 +9,7 @@ export type DashboardStats = {
   totalDocuments: number;
   pendingDocuments: number;
   archivedThisMonth: number;
+  expiringSoon: number;
 };
 
 export type ActivityItem = {
@@ -43,6 +45,7 @@ export async function fetchDashboardStats(): Promise<DashboardStats> {
     totalDocuments,
     pendingDocuments,
     archivedThisMonth,
+    expiringSoon,
   ] = await Promise.all([
     count("licenses"),
     count("licenses", (q) => q.eq("status", "AKTIF")),
@@ -51,6 +54,7 @@ export async function fetchDashboardStats(): Promise<DashboardStats> {
     count("documents"),
     count("documents", (q) => q.eq("status", "MENUNGGU_VERIFIKASI")),
     count("documents", (q) => q.gte("created_at", monthStart.toISOString())),
+    count("licenses", (q) => q.eq("status", "AKTIF").gte("expiry_date", todayWita()).lte("expiry_date", addDays(todayWita(), 30))),
   ]);
 
   return {
@@ -61,6 +65,7 @@ export async function fetchDashboardStats(): Promise<DashboardStats> {
     totalDocuments,
     pendingDocuments,
     archivedThisMonth,
+    expiringSoon,
   };
 }
 

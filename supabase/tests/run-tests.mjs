@@ -108,10 +108,10 @@ await t("seed.sql idempotent (dijalankan ulang tanpa duplikasi)", async () => {
 group("Verifikasi QR publik");
 const aktif = await licByApp("PMH-2026-90001");
 const draft = await licByApp("PMH-2026-90004");
-await t("kode valid → hanya 6 kolom aman, tanpa NIK/NPWP", async () => {
+await t("kode valid → hanya 7 kolom aman (termasuk tanggal berakhir), tanpa NIK/NPWP", async () => {
   const r = await q("anon", `select * from public.verify_license($1)`, [aktif.verification_code]);
   eq(r.length, 1);
-  eq(Object.keys(r[0]).sort().join(","), "agency,holder_name,issue_date,license_number,license_type,status");
+  eq(Object.keys(r[0]).sort().join(","), "agency,expiry_date,holder_name,issue_date,license_number,license_type,status");
   eq(r[0].holder_name, "PT Contoh Belu Sejahtera");
   eq(r[0].status, "AKTIF");
   ok(/Belu/.test(r[0].agency));
@@ -660,6 +660,40 @@ await t("Audit Log: hanya Super Admin, Admin Arsip, Pimpinan yang dapat membaca;
   for (const who of [U.pt, U.vf, U.vw]) eq((await q(who, `select id from public.audit_logs limit 1`)).length, 0);
   await denied(U.sa, `update public.audit_logs set description = 'x'`, [], /permission denied/);
   await denied(U.sa, `delete from public.audit_logs`, [], /permission denied/);
+});
+
+// ── 9d. Laporan (Fase 6) ────────────────────────────────────────────────────
+group("Laporan: fungsi rekap mengikuti hak pemanggil");
+await t("rekap perizinan: total = jumlah izin yang terlihat; Viewer hanya status publik; anon ditolak", async () => {
+  const sum = (rows) => rows.reduce((a, r) => a + Number(r.total), 0);
+  const all = sum(await q(U.sa, `select * from public.report_license_summary()`));
+  const visible = (await one(U.sa, `select count(*)::int c from public.v_license_search`)).c;
+  eq(all, visible);
+  const vw = await q(U.vw, `select distinct status from public.report_license_summary()`);
+  ok(vw.length > 0 && vw.every((r) => ["DITERBITKAN", "AKTIF", "BERAKHIR"].includes(r.status)), JSON.stringify(vw));
+  await denied("anon", `select * from public.report_license_summary()`, [], /permission denied/);
+});
+await t("rekap perizinan: dasar tanggal terbit, filter periode & kecamatan; dasar tak dikenal ditolak", async () => {
+  const r = await q(U.pm, `select * from public.report_license_summary('2021-01-01', '2021-12-31', 'issue')`);
+  ok(r.length >= 1 && r.every((x) => x.status !== "DRAFT"), JSON.stringify(r));
+  const d = await one(null, `select district_id from public.licenses where application_number = 'PMH-2026-90001'`);
+  const byD = await q(U.pm, `select * from public.report_license_summary(null, null, 'application', $1)`, [d.district_id]);
+  ok(byD.every((x) => x.district_id === d.district_id));
+  await denied(U.pm, `select * from public.report_license_summary(null, null, 'sembarang')`, [], /tidak dikenal/);
+});
+await t("tren bulanan: selalu 12 baris; jumlah permohonan sesuai data", async () => {
+  const y = new Date().getFullYear();
+  const r = await q(U.ad, `select * from public.report_monthly($1)`, [y]);
+  eq(r.length, 12);
+  const expect = (await one(U.ad, `select count(*)::int c from public.v_license_search where extract(year from application_date) = $1`, [y])).c;
+  eq(r.reduce((a, x) => a + Number(x.submitted), 0), expect);
+  eq((await q(U.ad, `select * from public.report_monthly(1990)`)).every((x) => Number(x.submitted) === 0), true);
+});
+await t("rekap dokumen: Viewer hanya melihat Surat Izin", async () => {
+  const sa = await q(U.sa, `select * from public.report_document_summary()`);
+  ok(new Set(sa.map((r) => r.document_type_name)).size > 1);
+  const vw = await q(U.vw, `select * from public.report_document_summary()`);
+  ok(vw.length > 0 && vw.every((r) => r.document_type_name === "Surat Izin"), JSON.stringify(vw));
 });
 
 // ── 10. Pemeliharaan harian ─────────────────────────────────────────────────
