@@ -62,7 +62,6 @@ grant execute on function public.has_role(text[]) to authenticated;
 
 -- RLS: default tolak. Anon tidak punya akses sama sekali.
 alter table public.profiles enable row level security;
-alter table public.profiles force row level security;
 revoke all on public.profiles from anon;
 
 drop policy if exists profiles_select_self on public.profiles;

@@ -222,7 +222,7 @@ Catatan asumsi: "Viewer hanya data yang diberikan akses" diwujudkan sebagai read
 | applicants, businesses | semua role internal (viewer lewat view tersamar) | super_admin, admin_arsip, petugas | sama | super_admin (soft) |
 | licenses | internal: semua yang `deleted_at is null`; viewer: hanya status publik | super_admin, admin_arsip, petugas | admin/super_admin semua; petugas hanya `officer_id = auth.uid()` dan status DRAFT/DIAJUKAN; verifikator hanya kolom status via fungsi | super_admin (soft) |
 | documents, document_versions | sama seperti licenses (mengikuti izin induk) | can_write_archive | hanya flag `is_current`, tidak ada ubah file | tidak ada hard delete; soft delete admin |
-| document_verifications | internal baca | verifikator, super_admin (verified_by dipaksa = auth.uid()) | tidak ada | tidak ada |
+| document_verifications | internal baca | **hanya lewat `verify_document()`** (verifikator, super_admin; `verified_by` = auth.uid()) | tidak ada | tidak ada |
 | license_status_history | internal baca | hanya lewat trigger | tidak ada | tidak ada |
 | notifications | `user_id = auth.uid()` | trigger/fungsi | pemilik (is_read) | pemilik |
 | audit_logs | super_admin, admin_arsip, pimpinan | hanya trigger | tidak ada | tidak ada |
@@ -293,3 +293,24 @@ Ringkasan deploy Vercel (dikerjakan di Fase 1 dan dirapikan di Fase 7): framewor
 - Proyek Supabase (URL + anon key; service role TIDAK perlu diberikan ke saya atau frontend).
 - Akun Vercel dan repo GitHub (untuk Fase 1 saya siapkan ZIP/repo siap push).
 - Daftar kecamatan/desa Kabupaten Belu dan jenis izin resmi (untuk menggantikan seed dummy).
+
+---
+
+## 10. Perubahan terhadap desain awal (ditetapkan saat Fase 2)
+
+Semua perubahan di bawah ini sudah tertuang di migration dan diuji (`supabase/tests`).
+
+| # | Perubahan | Alasan |
+|---|-----------|--------|
+| 1 | Verifikasi dokumen hanya lewat fungsi `verify_document(version_id, result, note)`, bukan insert langsung ke `document_verifications`. | Status dokumen, status izin (DIAJUKAN → VERIFIKASI), riwayat, dan notifikasi harus berubah satu paket; insert langsung bisa membuatnya tidak konsisten. |
+| 2 | Kolom `document_types.viewer_visible` (default false; hanya **Surat Izin** bernilai true). Viewer hanya melihat dokumen/file berjenis itu. | KTP, NPWP, dan berkas pribadi lain tidak pantas terbuka untuk Viewer. Pendekatan teraman sesuai instruksi "pilih yang paling aman". |
+| 3 | Tabel baru `license_type_documents` (dokumen wajib per jenis izin). | Dasar perhitungan "dokumen tidak lengkap" dan syarat DISETUJUI; kebutuhan dokumen tiap jenis izin berbeda. |
+| 4 | `audit_logs` ditambah `description` (kalimat siap tampil, mis. "Mengupload dokumen: NIB_PT_….pdf (versi 1)") dan `user_role`. `action` berisi kode (CREATE, UPDATE, DELETE, RESTORE, STATUS_CHANGE, UPLOAD, VERIFY). | Dashboard dan halaman Audit Log menampilkan kalimat, filter memakai kode. |
+| 5 | `profiles.email` (salinan untuk tampilan daftar pengguna). | Email aslinya ada di `auth.users` yang tidak boleh dibaca klien. |
+| 6 | Penjaga trigger hanya membatasi **API caller** (role `authenticated`/`anon`). SQL Editor dan `service_role` tidak dibatasi. | Pemilik proyek tetap bisa memperbaiki data lewat SQL Editor; klien tidak bisa melewati workflow. |
+| 7 | Admin Arsip/Super Admin boleh menyisipkan izin langsung berstatus selain DRAFT (impor arsip izin lama). Petugas hanya DRAFT. Insert awal tercatat di `license_status_history`. | Aplikasi ini arsip: izin lama yang sudah terbit harus bisa didigitalkan. |
+| 8 | Petugas dapat mengubah **data** izin miliknya hanya saat DRAFT/DIAJUKAN, tetapi dapat **mengunggah dokumen** juga saat VERIFIKASI. | Dokumen yang ditolak verifikator harus bisa diganti tanpa membuka kembali seluruh data izin. |
+| 9 | Penerbitan (DISETUJUI → DITERBITKAN) otomatis lanjut ke AKTIF bila tanggal terbit ≤ hari ini; bila tanggal terbit di masa depan, cron harian yang mengaktifkan. | Menghindari klik ganda; kedua status tetap tercatat di riwayat. |
+| 10 | View baru: `v_license_search` (daftar+pencarian, menyamarkan NIK/NPWP untuk Viewer), `v_staff` (nama petugas tanpa data sensitif), `v_license_completeness` (kelengkapan dokumen). | Satu sumber untuk tabel Data Perizinan dan Pencarian di Fase 3 dan 6. |
+| 11 | Kode verifikasi QR tetap 12 karakter acak (A–Z/0–9). Pembuatannya dipaksa server; klien tidak bisa menentukan atau mengubahnya. | Sesuai desain; pembatasan laju permintaan publik bergantung pada rate limit Supabase (lihat Fase 7). |
+| 12 | Pembuatan akun: hanya Edge Function `admin-create-user` (Super Admin), plus UI di menu **Pengguna & Role**. Profil terakhir yang berstatus Super Admin aktif tidak dapat dinonaktifkan/diturunkan. | Mencegah sistem terkunci tanpa administrator. |

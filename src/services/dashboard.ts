@@ -14,6 +14,7 @@ export type ActivityItem = {
   id: number;
   user_name: string | null;
   action: string;
+  description: string | null;
   module: string;
   created_at: string;
 };
@@ -66,7 +67,7 @@ export async function fetchDashboardStats(): Promise<DashboardStats> {
 export async function fetchRecentActivity(limit = 8): Promise<ActivityItem[]> {
   const { data, error } = await supabase
     .from("audit_logs")
-    .select("id, user_name, action, module, created_at")
+    .select("id, user_name, action, description, module, created_at")
     .order("created_at", { ascending: false })
     .limit(limit);
   if (error) throw new Error(error.message);

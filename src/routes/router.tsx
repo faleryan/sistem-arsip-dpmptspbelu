@@ -5,6 +5,7 @@ import LoginPage from "@/pages/auth/LoginPage";
 import ForgotPasswordPage from "@/pages/auth/ForgotPasswordPage";
 import ResetPasswordPage from "@/pages/auth/ResetPasswordPage";
 import DashboardPage from "@/pages/dashboard/DashboardPage";
+import UsersPage from "@/pages/users/UsersPage";
 import ComingSoonPage from "@/pages/shared/ComingSoonPage";
 import NotFoundPage from "@/pages/shared/NotFoundPage";
 
@@ -42,7 +43,7 @@ export const router = createBrowserRouter([
           {
             element: <RoleGuard roles={["super_admin"]} />,
             children: [
-              { path: "pengguna/*", element: <ComingSoonPage title="Pengguna & Role" phase={2} /> },
+              { path: "pengguna", element: <UsersPage /> },
               { path: "pengaturan", element: <ComingSoonPage title="Pengaturan" phase={7} /> },
             ],
           },

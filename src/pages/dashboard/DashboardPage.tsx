@@ -71,8 +71,7 @@ export default function DashboardPage() {
               {activity.data!.map((a) => (
                 <li key={a.id} className="flex items-start justify-between gap-4 py-3 text-sm">
                   <span>
-                    <span className="font-medium">{a.user_name ?? "Sistem"}</span> · {a.action}{" "}
-                    <span className="text-muted-foreground">({a.module})</span>
+                    <span className="font-medium">{a.user_name ?? "Sistem"}</span> · {a.description ?? a.action}
                   </span>
                   <time className="shrink-0 text-xs text-muted-foreground" dateTime={a.created_at}>
                     {formatDateTime(a.created_at)}
